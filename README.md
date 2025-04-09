@@ -51,8 +51,8 @@ Various modules to ease CPU development with Slang.
 * `sort.slang`: sorting algorithms for the `IArray` \& `IRWArray` interface
 
 Interfaces are subject to change. Slang is still a quickly evolving language; if
-a cleaner way to implement things is implement, it should be adopted in this
-library.
+a cleaner way to implement things is added to the language, it should be adopted
+in this library.
 
 ## example
 

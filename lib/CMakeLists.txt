@@ -4,4 +4,13 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../cmake")
 
 project(SCL LANGUAGES Slang)
 
-add_slang_library(scl platform.slang)
+add_slang_library(scl
+    platform.slang
+    panic.slang
+    drop.slang
+    memory.slang
+    thread.slang
+    hash.slang
+    sort.slang
+    span.slang
+)
