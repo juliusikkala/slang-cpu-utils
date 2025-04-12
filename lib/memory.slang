@@ -109,11 +109,12 @@ public struct SystemAllocator: IAllocator
     }
 }
 
-public static IAllocator defaultAllocator = SystemAllocator();
+public static SystemAllocator defaultAllocator = SystemAllocator();
 
-public Ptr<T> allocate<T>(size_t count, inout IAllocator alloc)
+public Ptr<T> allocate<T, A:IAllocator>(size_t count, inout A alloc)
 {
-    return reinterpret<Ptr<T>>(alloc.allocate(strideof<T>() * count, alignof<T>()));
+    Ptr<void> addr = alloc.allocate(strideof<T>() * count, alignof<T>());
+    return reinterpret<Ptr<T>>(addr);
 }
 
 public Ptr<T> allocate<T>(size_t count = 1)
@@ -121,7 +122,7 @@ public Ptr<T> allocate<T>(size_t count = 1)
     return allocate<T>(count, defaultAllocator);
 }
 
-public Ptr<T> reallocate<T>(Ptr<T> oldPtr, size_t oldCount, size_t newCount, inout IAllocator alloc)
+public Ptr<T> reallocate<T, A:IAllocator>(Ptr<T> oldPtr, size_t oldCount, size_t newCount, inout A alloc)
 {
     return reinterpret<Ptr<T>>(alloc.reallocate(reinterpret<Ptr<void>>(oldPtr), strideof<T>() * oldCount, strideof<T>() * newCount, alignof<T>()));
 }
@@ -131,12 +132,12 @@ public Ptr<T> reallocate<T>(Ptr<T> oldPtr, size_t oldCount, size_t newCount)
     return reallocate<T>(oldPtr, oldCount, newCount, defaultAllocator);
 }
 
-public void deallocate<T>(Ptr<T> oldPtr, inout IAllocator alloc)
+public void deallocate<T, A:IAllocator>(Ptr<T> oldPtr, inout A alloc)
 {
     alloc.deallocate(reinterpret<Ptr<void>>(oldPtr));
 }
 
 public void deallocate<T>(Ptr<T> oldPtr)
 {
-    deallocate(oldPtr, defaultAllocator);
+    deallocate<T>(oldPtr, defaultAllocator);
 }
