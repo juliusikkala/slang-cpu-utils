@@ -3,7 +3,7 @@ import platform;
 // sizeof() in Slang gives the size of a struct without trailing padding, but
 // we need to include the padding for memory allocations.
 [ForceInline]
-public size_t strideof<T>() { return __sizeOf<T>(); }
+public size_t strideof<T>() { return __naturalStrideOf<T>(); }
 
 [ForceInline]
 public size_t alignof<T>() { return __alignOf<T>(); }
