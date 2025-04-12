@@ -1,4 +1,5 @@
 import memory;
+import array;
 import span;
 
 //==============================================================================
@@ -236,11 +237,11 @@ struct FloatingPointKeyFunctor<T: __BuiltinFloatingPointType> : IFunc<uint64_t, 
 public void radixSort<T: __BuiltinIntegerType, A: IRWBigArray<T>>(inout A arr)
 {
     IntegerKeyFunctor<T> key;
-    radixSort(arr, key, sizeof(T) * 8);
+    radixSort<T, A, IntegerKeyFunctor<T>>(arr, key, sizeof(T) * 8);
 }
 
 public void radixSort<T: __BuiltinFloatingPointType, A: IRWBigArray<T>>(inout A arr)
 {
     FloatingPointKeyFunctor<T> key;
-    radixSort(arr, key, sizeof(T) * 8);
+    radixSort<T, A, FloatingPointKeyFunctor<T>>(arr, key, sizeof(T) * 8);
 }

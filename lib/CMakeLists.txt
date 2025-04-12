@@ -13,4 +13,6 @@ add_slang_library(scl
     hash.slang
     sort.slang
     span.slang
+    array.slang
+    list.slang
 )

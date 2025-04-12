@@ -97,6 +97,9 @@ public struct SystemAllocator: IAllocator
         size_t bytes,
         size_t alignment
     ){
+        if (prevPtr == nullptr)
+            return allocate(bytes, alignment);
+
         Ptr<void> newPtr = systemRealloc(prevPtr, bytes, alignment);
         if ((uintptr_t(newPtr) % alignment) != 0)
         {
