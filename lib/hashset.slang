@@ -77,9 +77,9 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         for (size_t i = 0; i < _indexCounter; ++i)
         {
             uint64_t h = _data[i].hash() & getHashMask();
-            Ptr<size_t> index = _hashes + h;
+            Ptr<size_t> index = _hashes + int64_t(h);
             while (*index != size_t.maxValue)
-                index = _next + *index;
+                index = _next + int64_t(*index);
             *index = i;
             _next[*index] = size_t.maxValue;
         }
@@ -94,13 +94,13 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
             expand();
 
         uint64_t h = key.hash() & getHashMask();
-        Ptr<size_t> index = _hashes + h;
+        Ptr<size_t> index = _hashes + int64_t(h);
         while (*index != size_t.maxValue)
         {
             if (_data[*index].equals(key))
                 return false; // Already exists.
             else
-                index = _next + *index;
+                index = _next + int64_t(*index);
         }
 
         *index = _indexCounter;
@@ -117,13 +117,13 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
     {
         // Remove old value
         uint64_t h = key.hash() & getHashMask();
-        Ptr<size_t> index = _hashes + h;
+        Ptr<size_t> index = _hashes + int64_t(h);
         while (*index != size_t.maxValue)
         {
             if (_data[*index].equals(key))
                 break;
             else
-                index = _next + *index;
+                index = _next + int64_t(*index);
         }
 
         // Not found
@@ -140,9 +140,9 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         {
             _data[*index] = _data[lastIndex];
             h = _data[*index].hash() & getHashMask();
-            Ptr<size_t> prevIndex = _hashes + h;
+            Ptr<size_t> prevIndex = _hashes + int64_t(h);
             while (*prevIndex != lastIndex)
-                prevIndex = _next + *prevIndex;
+                prevIndex = _next + int64_t(*prevIndex);
             *prevIndex = *index;
             _next[*index] = _next[lastIndex];
         }

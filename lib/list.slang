@@ -1,6 +1,7 @@
 import array;
 import memory;
 import drop;
+import span;
 
 public struct List<T>: IRWBigArray<T>, IDroppable
 {
@@ -143,19 +144,16 @@ public struct List<T>: IRWBigArray<T>, IDroppable
     [mutating]
     public void insert(size_t toIndex, T value)
     {
-        insert(toIndex, &value, 1);
+        Span<T> valueSpan;
+        valueSpan.data = &value;
+        valueSpan.count = 1;
+        insert(toIndex, valueSpan);
     }
 
     [mutating]
-    public void insert(size_t toIndex, List<T> value)
+    public void insert<U: IBigArray<T>>(size_t toIndex, U arr)
     {
-        insert(toIndex, value.data, value.size);
-    }
-
-    [mutating]
-    public void insert(size_t toIndex, Ptr<T> value, size_t count)
-    {
-        let newSize = _size + count;
+        let newSize = _size + arr.getSize();
         if (newSize >= _capacity)
         {
             size_t newCapacity = _capacity * 2;
@@ -166,16 +164,16 @@ public struct List<T>: IRWBigArray<T>, IDroppable
 
         let target = min(toIndex, _size);
 
-        for(size_t i = _size; i > size; --i)
+        for(size_t i = _size; i > target; --i)
         {
             let oldIndex = i-1;
-            let newIndex = oldIndex + count;
+            let newIndex = oldIndex + arr.getSize();
             _data[newIndex] = _data[oldIndex];
         }
 
-        for(size_t i = 0; i < count; ++i)
+        for(size_t i = 0; i < arr.getSize(); ++i)
         {
-            _data[size + i] = value[i];
+            _data[target + i] = arr[i];
         }
 
         _size = newSize;
