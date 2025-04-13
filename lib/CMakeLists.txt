@@ -15,4 +15,6 @@ add_slang_library(scl
     span.slang
     array.slang
     list.slang
+    hashset.slang
+    hashmap.slang
 )
