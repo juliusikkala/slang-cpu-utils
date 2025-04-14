@@ -19,8 +19,91 @@ public Ptr<T> stringToPtr<T>(NativeString ptr)
     return Ptr<T>(ptr.getBuffer());
 }
 
-Optional<int64_t> parseInt(NativeString str, inout int offset, int radix = 10); // TODO
-Optional<double> parseFloat(NativeString str, inout int offset); // TODO
+public Optional<int64_t> parseInt(NativeString str, inout int offset, int radix = 10, bool allowNegative = true)
+{
+    Ptr<uint8_t> string = stringToPtr<uint8_t>(str);
+    int64_t result = 0;
+    bool found = false;
+    bool negative = false;
+
+    while (string[offset] != 0)
+    {
+        int a = 0;
+        uint8_t c = string[offset];
+        if (c == 45 && allowNegative && !negative)
+        {
+            negative = true;
+            offset++;
+            continue;
+        }
+        else if (c >= 48 && c <= 57)
+            a = c-48;
+        else if(c >= 65 && c <= 90)
+            a = c-55;
+        else if(c >= 97 && c <= 122)
+            a = c-87;
+        else break;
+
+        if (a >= radix)
+            break;
+
+        found = true;
+        offset++;
+        result = result * radix + a;
+    }
+
+    if (!found)
+        return none;
+
+    return negative ? -result : result;
+}
+
+public Optional<double> parseFloat(NativeString str, inout int offset, bool allowNegative = false)
+{
+    Ptr<uint8_t> string = stringToPtr<uint8_t>(str);
+    double result = 0;
+    bool found = false;
+    bool negative = false;
+    bool decimals = false;
+    double decimal_mul = 0.1;
+
+    while (string[offset] != 0)
+    {
+        int a = 0;
+        uint8_t c = string[offset];
+        if (c == 45 && allowNegative)
+        {
+            negative = !negative;
+            offset++;
+            continue;
+        }
+        else if (c == 46 && !decimals)
+        {
+            decimals = true;
+            offset++;
+            continue;
+        }
+        else if (c >= 48 && c <= 57)
+            a = c-48;
+        else break;
+
+        found = true;
+        offset++;
+
+        if (decimals)
+        {
+            result += decimal_mul * double(a);
+            decimal_mul *= 0.1;
+        }
+        else
+            result = result * 10 + double(a);
+    }
+
+    if (!found)
+        return none;
+
+    return negative ? -result : result;
+}
 
 public uint codePointLength(NativeString u8str, size_t offset = 0)
 {
