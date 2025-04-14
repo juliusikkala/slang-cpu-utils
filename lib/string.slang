@@ -19,6 +19,9 @@ public Ptr<T> stringToPtr<T>(NativeString ptr)
     return Ptr<T>(ptr.getBuffer());
 }
 
+Optional<int64_t> parseInt(NativeString str, inout int offset, int radix = 10); // TODO
+Optional<double> parseFloat(NativeString str, inout int offset); // TODO
+
 public uint codePointLength(NativeString u8str, size_t offset = 0)
 {
     Ptr<int8_t> str = stringToPtr<int8_t>(u8str) + int64_t(offset);
@@ -96,6 +99,35 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
         append(str);
     }
 
+    // DO NOT drop() the return value!
+    public List<uint8_t> asList()
+    {
+        if (_data.size == 0)
+            return _data;
+
+        List<uint8_t> l = _data;
+        // Remove null terminator. Note that this doesn't change _data, as pop()
+        // only changes the "size" member.
+        l.pop(0);
+        return l;
+    }
+
+    public static U8String fromList(inout List<uint8_t> l)
+    {
+        U8String result;
+        result._data = l;
+
+        // Reset to prevent user from dropping the data we yoinked.
+        l = List<uint8_t>();
+
+        if (result._data.size != 0)
+        {
+            // If not null-terminated, add null terminator.
+            if (result._data[result._data.size-1] != 0)
+                result._data.push(0);
+        }
+        return result;
+    }
 
     [mutating]
     private void ensureNullTerminator()
