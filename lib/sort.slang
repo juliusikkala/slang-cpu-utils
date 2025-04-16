@@ -65,7 +65,10 @@ public void heapify<T, A: IRWBigArray<T>, C: IFunc<bool, T, T>>(inout A arr, C c
 
 public void buildHeap<T, A: IRWBigArray<T>, C: IFunc<bool, T, T>>(inout A arr, C compare)
 {
-    size_t lastParent = (arr.getSize()>>1) - 1;
+    if (arr.getSize() <= 1)
+        return;
+
+    size_t lastParent = arr.getSize()>>1;
 
     for (size_t i = 0; i < lastParent; ++i)
         heapify<T, A, C>(arr, compare, lastParent-1-i, arr.getSize());
@@ -165,7 +168,6 @@ public void stableSort<T: IComparable, A: IRWBigArray<T>>(inout A arr)
     stableSort(arr, LessThanCompare<T>());
 }
 
-
 public void radixSort<T, A: IRWBigArray<T>, K: IFunc<uint64_t, T>>(inout A arr, K keyFunc, int sortBits)
 {
     static const int RADIX_PASS_BITS = 8;
@@ -191,7 +193,7 @@ public void radixSort<T, A: IRWBigArray<T>, K: IFunc<uint64_t, T>>(inout A arr, 
         }
 
         // Exclusive scan over histogram
-        for (int i = 1; i < (1<<RADIX_PASS_BITS); ++i)
+        for (int i = (1<<RADIX_PASS_BITS)-1; i > 0; --i)
             histogram[i] = histogram[i-1];
         histogram[0] = 0;
         for (int i = 1; i < (1<<RADIX_PASS_BITS); ++i)
@@ -200,7 +202,7 @@ public void radixSort<T, A: IRWBigArray<T>, K: IFunc<uint64_t, T>>(inout A arr, 
         for(size_t i = 0; i < arr.getSize(); ++i)
         {
             uint64_t k = keyFunc(forward ? arr[i] : scratchSpan[i]);
-            uint64_t category = (k >> (passIndex*RADIX_PASS_BITS)) & RADIX_PASS_MASK;
+            uint64_t category = (k >> (passIndex * RADIX_PASS_BITS)) & RADIX_PASS_MASK;
             size_t index = histogram[category];
             histogram[category]++;
 
@@ -218,7 +220,13 @@ public void radixSort<T, A: IRWBigArray<T>, K: IFunc<uint64_t, T>>(inout A arr, 
 
 struct IntegerKeyFunctor<T: __BuiltinIntegerType> : IFunc<uint64_t, T>
 {
-    uint64_t operator()(T t) { return reinterpret<uint64_t>(t); }
+    uint64_t operator()(T t)
+    {
+        var val = t;
+        if (T(-1) < T(0)) // Is signed?
+            val += T(1)<<(sizeof(T)*8-1);
+        return reinterpret<uint64_t>(val);
+    }
 }
 
 struct FloatingPointKeyFunctor<T: __BuiltinFloatingPointType> : IFunc<uint64_t, T>
