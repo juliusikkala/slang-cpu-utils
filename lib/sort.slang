@@ -111,6 +111,9 @@ public void copy<T, A: IBigArray<T>, B: IRWBigArray<T>>(inout A from, inout B to
 // implement without a stack.
 public void sort<T, A: IRWBigArray<T>, C: IFunc<bool, T, T>>(inout A arr, C compare)
 {
+    if (arr.getSize() == 0)
+        return;
+
     buildHeap<T, A, C>(arr, compare);
 
     for (size_t i = arr.getSize()-1; i > 0; --i)

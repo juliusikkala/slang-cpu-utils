@@ -86,12 +86,14 @@ void testFloatList(size_t len)
 
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
+    testIntList(0);
     testIntList(1);
     testIntList(50);
     testIntList(256);
     testIntList(2049);
     testIntList(65530);
 
+    testFloatList(0);
     testFloatList(1);
     testFloatList(50);
     testFloatList(256);
