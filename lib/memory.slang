@@ -48,8 +48,8 @@ public interface IAllocator
 
 // You can use this to implement "reallocate" for an allocator that can't do
 // anything special there.
-public Ptr<void> fallbackRellocate(
-    IAllocator alloc, 
+public Ptr<void> fallbackReallocate<T: IAllocator>(
+    T alloc, 
     Ptr<void> prevPtr,
     size_t prevBytes,
     size_t bytes,
@@ -112,9 +112,9 @@ public struct SystemAllocator: IAllocator
     }
 }
 
-public static SystemAllocator defaultAllocator = SystemAllocator();
+public static IAllocator defaultAllocator = SystemAllocator();
 
-public Ptr<T> allocate<T, A:IAllocator>(size_t count, inout A alloc)
+public Ptr<T> allocate<T, A: IAllocator>(size_t count, inout A alloc)
 {
     Ptr<void> addr = alloc.allocate(strideof<T>() * count, alignof<T>());
     return reinterpret<Ptr<T>>(addr);
@@ -122,7 +122,8 @@ public Ptr<T> allocate<T, A:IAllocator>(size_t count, inout A alloc)
 
 public Ptr<T> allocate<T>(size_t count = 1)
 {
-    return allocate<T>(count, defaultAllocator);
+    Ptr<void> addr = defaultAllocator.allocate(strideof<T>() * count, alignof<T>());
+    return reinterpret<Ptr<T>>(addr);
 }
 
 public Ptr<T> reallocate<T, A:IAllocator>(Ptr<T> oldPtr, size_t oldCount, size_t newCount, inout A alloc)
@@ -132,7 +133,7 @@ public Ptr<T> reallocate<T, A:IAllocator>(Ptr<T> oldPtr, size_t oldCount, size_t
 
 public Ptr<T> reallocate<T>(Ptr<T> oldPtr, size_t oldCount, size_t newCount)
 {
-    return reallocate<T>(oldPtr, oldCount, newCount, defaultAllocator);
+    return reinterpret<Ptr<T>>(defaultAllocator.reallocate(reinterpret<Ptr<void>>(oldPtr), strideof<T>() * oldCount, strideof<T>() * newCount, alignof<T>()));
 }
 
 public void deallocate<T, A:IAllocator>(Ptr<T> oldPtr, inout A alloc)
@@ -142,5 +143,5 @@ public void deallocate<T, A:IAllocator>(Ptr<T> oldPtr, inout A alloc)
 
 public void deallocate<T>(Ptr<T> oldPtr)
 {
-    deallocate<T>(oldPtr, defaultAllocator);
+    defaultAllocator.deallocate(reinterpret<Ptr<void>>(oldPtr));
 }
