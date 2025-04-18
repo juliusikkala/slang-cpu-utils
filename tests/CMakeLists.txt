@@ -11,3 +11,8 @@ endfunction()
 
 test(drop_test)
 test(sort_test)
+test(memory_test)
+test(array_test)
+test(hash_test)
+test(thread_test)
+test(time_test)

@@ -51,6 +51,7 @@ Various modules to ease CPU development with Slang.
 * `hashmap.slang`: a hash map (similar to `std::unordered_map`)
 * `hashset.slang`: a hash set (similar to `std::unordered_set`)
 * `sort.slang`: sorting algorithms
+* `time.slang`: timing & sleep utilities
 
 Interfaces are subject to change. Slang is still a quickly evolving language; if
 a cleaner way to implement things is added to the language, it should be adopted

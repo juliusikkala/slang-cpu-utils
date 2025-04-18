@@ -15,11 +15,11 @@ public uint64_t hashCombine(uint64_t seed, uint64_t next)
     return hashMix(seed + next + 0x9e3779b9);
 }
 
-public uint64_t hashMany<each T>(expand each T parts)
-    where T : IHashable
+public uint64_t hashMany<each T : IHashable>(expand each T parts)
 {
     uint64_t h = 0;
-    expand (h = hashCombine(h, (each parts).hash()));
+    uint index = 0;
+    expand (h = (index++) == 0 ? (each parts).hash() : hashCombine(h, (each parts).hash()));
     return h;
 }
 
@@ -30,15 +30,15 @@ public interface IHashable
 
 public extension<T:__BuiltinType> T : IHashable
 {
-    public uint64_t hash() { return hashMix(reinterpret<uint64_t>(this)); } 
+    public uint64_t hash() { return hashMix(reinterpret<uint64_t>(this) + 0x9e3779b9); } 
 }
 
 public extension<T> Ptr<T>: IHashable
 {
-    public uint64_t hash() { return hashMix(reinterpret<uint64_t>(this)); }
+    public uint64_t hash() { return hashMix(reinterpret<uint64_t>(this) + 0x9e3779b9); }
 }
 
-public extension<each T : IHashable> Tuple<expand each T>: IHashable
+public extension<each T: IHashable> Tuple<T>: IHashable
 {
     public uint64_t hash()
     { 

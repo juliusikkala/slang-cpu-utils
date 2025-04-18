@@ -33,5 +33,10 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     }
     test(dc.count == 2, "4");
 
+    Optional<DropCounter> odc = DropCounter();
+    test(odc.value.count == 0, "5");
+    drop(odc);
+    test(odc == none, "6");
+
     return 0;
 }
