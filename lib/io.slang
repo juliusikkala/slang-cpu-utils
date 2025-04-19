@@ -90,7 +90,7 @@ public List<uint8_t> readBinaryFile(NativeString path)
     return data;
 }
 
-public void writeBinaryFile(NativeString path, List<uint8_t> data)
+public void writeBinaryFile(NativeString path, Ptr<uint8_t> data, size_t size)
 {
     Ptr<void> f = fopen_helper(path, "wb");
 
@@ -100,8 +100,13 @@ public void writeBinaryFile(NativeString path, List<uint8_t> data)
 
     defer fclose_helper(f);
 
-    if (fwrite_helper(reinterpret<Ptr<void>>(data.data), 1, data.size, f) != data.size)
+    if (fwrite_helper(reinterpret<Ptr<void>>(data), 1, size, f) != size)
         panic("Unable to write %s\n", path);
+}
+
+public void writeBinaryFile(NativeString path, List<uint8_t> data)
+{
+    writeBinaryFile(path, data.data, data.size);
 }
 
 public U8String readTextFile(NativeString path)
@@ -113,4 +118,9 @@ public U8String readTextFile(NativeString path)
 public void writeTextFile(NativeString path, U8String data)
 {
     writeBinaryFile(path, data.asList());
+}
+
+public void writeTextFile(NativeString path, NativeString data)
+{
+    writeBinaryFile(path, stringToPtr<uint8_t>(data), data.length);
 }

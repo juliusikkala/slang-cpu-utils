@@ -8,10 +8,7 @@ public NativeString ptrToString<T>(Ptr<T> ptr)
 {
     // These bad boys are surprisingly hard to construct, since reinterpret<T>
     // doesn't like NativeString.
-    __target_switch
-    {
-    case cpp: __intrinsic_asm "((const char*)$0)";
-    };
+    __intrinsic_asm "((const char*)$0)";
 }
 
 public Ptr<T> stringToPtr<T>(NativeString ptr)
@@ -363,4 +360,19 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     {
         return fnv1a(_data.data, getSize());
     }
+}
+
+public bool operator==(NativeString str, NativeString other)
+{
+    __intrinsic_asm "strcmp($0, $1) == 0";
+}
+
+public bool operator==(U8String a, NativeString b)
+{
+    return ((a.cStr) == b);
+}
+
+public bool operator==(NativeString a, U8String b)
+{
+    return ((b.cStr) == a);
 }
