@@ -44,3 +44,10 @@ public extension<T, U: IRWArray<T>> U : IRWBigArray<T>
         set { this[int(x)] = newValue; }
     }
 }
+
+public void copy<T, A: IBigArray<T>, B: IRWBigArray<T>>(inout A from, inout B to)
+{
+    size_t count = min(from.getSize(), to.getSize());
+    for (size_t i = 0; i < count; ++i)
+        to[i] = from[i];
+}
