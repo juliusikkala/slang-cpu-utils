@@ -31,7 +31,7 @@ void worker(inout Tuple<Ptr<WorkerData>, int> data)
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
     WorkerData data;
-    defer drop(data.mut);
+    defer data.mut.drop();
 
     uint64_t t0 = startThread(worker, &data, 0);
     uint64_t t1 = startThread(worker, &data, 1);

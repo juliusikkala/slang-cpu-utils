@@ -4,7 +4,7 @@ import memory;
 import drop;
 
 public struct HashSet<T>: IDroppable, IBigArray<T>
-    where T: IHashable, IComparable
+    where T: IHashable, IComparable, IDroppable
 {
     private size_t _indexCounter;
     private size_t _allocSize;
@@ -131,7 +131,7 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
             return none;
 
         // Destruct the found entry.
-        drop(_data[*index]);
+        _data[*index].drop();
         *index = _next[*index];
 
         size_t lastIndex = _indexCounter-1;
@@ -154,7 +154,7 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
     public void clear()
     {
         for (size_t i = 0; i < _indexCounter; ++i)
-            drop(_data[i]);
+            _data[i].drop();
         for (size_t i = 0; i < _allocSize * hashFactor; ++i)
             _hashes[i] = size_t.maxValue;
         _indexCounter = 0;

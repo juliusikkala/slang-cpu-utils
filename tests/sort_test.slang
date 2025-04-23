@@ -26,7 +26,8 @@ void generateRandomFloats(inout List<float> l, float bottom, float top)
         l[i] = float(pcg()) * 2.3283064365386963e-10f * (top-bottom) + bottom;
 }
 
-bool isInOrder<T: IComparable>(List<T> l)
+bool isInOrder<T>(List<T> l)
+    where T: IComparable, IDroppable
 {
     for (size_t i = 1; i < l.size; ++i)
     {
@@ -43,7 +44,7 @@ void testIntList(size_t len)
 {
     List<int> l;
     l.resize(len, 0);
-    defer drop(l);
+    defer l.drop();
 
     generateRandomInts(l);
     sort(l);
@@ -65,7 +66,7 @@ void testFloatList(size_t len)
 {
     List<float> l;
     l.resize(len, 0.0);
-    defer drop(l);
+    defer l.drop();
 
     generateRandomFloats(l, -10.0f, 10.0f);
 

@@ -5,7 +5,8 @@ import panic;
 import drop;
 
 public struct HashMap<K, T>: IDroppable
-    where K: IHashable, IComparable
+    where K: IHashable, IComparable, IDroppable
+    where T: IDroppable
 {
     private size_t _indexCounter;
     private size_t _allocSize;
@@ -156,8 +157,8 @@ public struct HashMap<K, T>: IDroppable
             return none;
 
         // Destruct the found entry.
-        drop(_keys[*index]);
-        drop(_values[*index]);
+        _keys[*index].drop();
+        _values[*index].drop();
         *index = _next[*index];
 
         size_t lastIndex = _indexCounter-1;
@@ -182,8 +183,8 @@ public struct HashMap<K, T>: IDroppable
     {
         for (size_t i = 0; i < _indexCounter; ++i)
         {
-            drop(_keys[i]);
-            drop(_values[i]);
+            _keys[i].drop();
+            _values[i].drop();
         }
         for (size_t i = 0; i < _allocSize * hashFactor; ++i)
             _hashes[i] = size_t.maxValue;

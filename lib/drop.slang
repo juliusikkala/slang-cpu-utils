@@ -18,10 +18,8 @@ public extension<T: IDroppable> Optional<T>: IDroppable
     }
 }
 
-public void drop<T>(inout T val)
-    where T : IDroppable
+public extension<T:__BuiltinType> T: IDroppable
 {
-    val.drop();
+    [mutating]
+    public void drop() {}
 }
-
-public void drop<T>(inout T val) {}

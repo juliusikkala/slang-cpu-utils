@@ -1,4 +1,5 @@
 import string;
+import drop;
 import panic;
 import list;
 import memory;

@@ -3,7 +3,7 @@ import memory;
 import drop;
 import span;
 
-public struct List<T>: IRWBigArray<T>, IDroppable
+public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
 {
     private Ptr<T> _data;
     private size_t _capacity;
@@ -68,7 +68,7 @@ public struct List<T>: IRWBigArray<T>, IDroppable
         if (newSize < _size)
         {
             for (size_t i = newSize; i < _size; ++i)
-                drop(_data[i]);
+                _data[i].drop();
         }
 
         for (size_t i = _size; i < newSize; ++i)
@@ -133,11 +133,12 @@ public struct List<T>: IRWBigArray<T>, IDroppable
         size_t end = fromIndex + count;
         if (end >= _size)
             end = _size;
+
+        for (size_t i = fromIndex; i < end; ++i)
+            _data[i].drop();
+
         for (size_t i = fromIndex; i+count < _size; ++i)
-        {
-            drop(_data[i]);
             _data[i] = _data[i+count];
-        }
         _size -= end - fromIndex;
     }
 
@@ -185,7 +186,7 @@ public struct List<T>: IRWBigArray<T>, IDroppable
         if (_data != nullptr)
         {
             for (size_t i = 0; i < _size; ++i)
-                drop(_data[i]);
+                _data[i].drop();
         }
         _size = 0;
     }

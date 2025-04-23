@@ -22,20 +22,22 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     DropCounter dc = DropCounter();
     test(dc.count == 0, "0");
     {
-        drop(dc);
+        dc.drop();
         test(dc.count == 1, "1");
-        defer drop(dc);
+        defer dc.drop();
 
+        /*
         Undroppable ud = Undroppable();
         test(ud.count == 0, "2");
-        drop(ud);
+        ud.drop();
         test(ud.count == 0, "3");
+        */
     }
     test(dc.count == 2, "4");
 
     Optional<DropCounter> odc = DropCounter();
     test(odc.value.count == 0, "5");
-    drop(odc);
+    odc.drop();
     test(odc == none, "6");
 
     return 0;
