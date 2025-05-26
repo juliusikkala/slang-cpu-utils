@@ -3,11 +3,11 @@ import memory;
 import drop;
 import span;
 
-public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
+public struct List<T>: IRWBigArray<T>
 {
-    private Ptr<T> _data;
-    private size_t _capacity;
-    private size_t _size;
+    Ptr<T> _data;
+    size_t _capacity;
+    size_t _size;
 
     public __init()
     {
@@ -27,9 +27,8 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
     */
 
     [mutating]
-    public void drop()
+    void _baseDrop()
     {
-        clear();
         if (_data != nullptr)
             deallocate<T>(_data);
         _data = nullptr;
@@ -60,16 +59,10 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
     }
 
     [mutating]
-    public void resize(size_t newSize, T defaultValue = T())
+    void _baseResize(size_t newSize, T defaultValue)
     {
         if (newSize > _capacity)
             reserve(newSize);
-
-        if (newSize < _size)
-        {
-            for (size_t i = newSize; i < _size; ++i)
-                _data[i].drop();
-        }
 
         for (size_t i = _size; i < newSize; ++i)
             _data[i] = defaultValue;
@@ -82,13 +75,8 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
         if (newCapacity < _size)
             return;
 
-        if (newCapacity == 0)
-            drop();
-        else
-        {
-            _data = reallocate<T>(_data, _capacity, newCapacity);
-            _capacity = newCapacity;
-        }
+        _data = reallocate<T>(_data, _capacity, newCapacity);
+        _capacity = newCapacity;
     }
 
     [mutating]
@@ -125,7 +113,7 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
     }
 
     [mutating]
-    public void erase(size_t fromIndex, size_t count)
+    void _baseErase(size_t fromIndex, size_t count)
     {
         if (fromIndex >= _size)
             return;
@@ -133,9 +121,6 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
         size_t end = fromIndex + count;
         if (end >= _size)
             end = _size;
-
-        for (size_t i = fromIndex; i < end; ++i)
-            _data[i].drop();
 
         for (size_t i = fromIndex; i+count < _size; ++i)
             _data[i] = _data[i+count];
@@ -181,6 +166,42 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
     }
 
     [mutating]
+    void _baseClear()
+    {
+        _size = 0;
+    }
+}
+
+public extension<T: IDroppable> List<T>: IDroppable
+{
+    [mutating]
+    public void drop()
+    {
+        clear();
+        _baseDrop();
+    }
+
+    [mutating]
+    public void resize(size_t newSize, T defaultValue = T())
+    {
+        if (newSize < _size)
+        {
+            for (size_t i = newSize; i < _size; ++i)
+                _data[i].drop();
+        }
+        _baseResize(newSize, defaultValue);
+    }
+
+    [mutating]
+    public void erase(size_t fromIndex, size_t count)
+    {
+        for (size_t i = fromIndex; i < min(fromIndex+count, _size); ++i)
+            _data[i].drop();
+
+        _baseErase(fromIndex, count);
+    }
+
+    [mutating]
     public void clear()
     {
         if (_data != nullptr)
@@ -188,6 +209,34 @@ public struct List<T: IDroppable>: IRWBigArray<T>, IDroppable
             for (size_t i = 0; i < _size; ++i)
                 _data[i].drop();
         }
-        _size = 0;
+        _baseClear();
     }
 }
+
+public extension<T> List<T>: IDroppable
+{
+    [mutating]
+    public void drop()
+    {
+        _baseDrop();
+    }
+
+    [mutating]
+    public void resize(size_t newSize, T defaultValue = T())
+    {
+        _baseResize(newSize, defaultValue);
+    }
+
+    [mutating]
+    public void erase(size_t fromIndex, size_t count)
+    {
+        _baseErase(fromIndex, count);
+    }
+
+    [mutating]
+    public void clear()
+    {
+        _baseClear();
+    }
+}
+

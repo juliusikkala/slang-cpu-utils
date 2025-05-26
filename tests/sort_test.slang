@@ -27,7 +27,7 @@ void generateRandomFloats(inout List<float> l, float bottom, float top)
 }
 
 bool isInOrder<T>(List<T> l)
-    where T: IComparable, IDroppable
+    where T: IComparable
 {
     for (size_t i = 1; i < l.size; ++i)
     {

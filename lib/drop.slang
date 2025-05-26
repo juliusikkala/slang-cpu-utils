@@ -17,9 +17,3 @@ public extension<T: IDroppable> Optional<T>: IDroppable
         }
     }
 }
-
-public extension<T:__BuiltinType> T: IDroppable
-{
-    [mutating]
-    public void drop() {}
-}
