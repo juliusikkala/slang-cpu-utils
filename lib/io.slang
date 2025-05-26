@@ -1,6 +1,5 @@
 import string;
 import drop;
-import panic;
 import list;
 import memory;
 
@@ -67,13 +66,19 @@ public Optional<U8String> readLine()
     return str;
 }
 
-public List<uint8_t> readBinaryFile(NativeString path)
+public enum IOError
+{
+    Open = 0,
+    Write,
+    Read
+}
+
+public List<uint8_t> readBinaryFile(NativeString path) throws IOError
 {
     Ptr<void> f = fopen_helper(path, "rb");
 
-    // TODO: Use exception instead, once those work.
     if (f == nullptr)
-        panic("Unable to open %s\n", path);
+        throw IOError.Open;
 
     defer fclose_helper(f);
 
@@ -86,42 +91,41 @@ public List<uint8_t> readBinaryFile(NativeString path)
     if (fread_helper(reinterpret<Ptr<void>>(data.data), 1, sz, f) != sz)
     {
         data.drop();
-        panic("Unable to read %s\n", path);
+        throw IOError.Read;
     }
     return data;
 }
 
-public void writeBinaryFile(NativeString path, Ptr<uint8_t> data, size_t size)
+public void writeBinaryFile(NativeString path, Ptr<uint8_t> data, size_t size) throws IOError
 {
     Ptr<void> f = fopen_helper(path, "wb");
 
-    // TODO: Use exception instead, once those work.
     if (f == nullptr)
-        panic("Unable to open %s\n", path);
+        throw IOError.Open;
 
     defer fclose_helper(f);
 
     if (fwrite_helper(reinterpret<Ptr<void>>(data), 1, size, f) != size)
-        panic("Unable to write %s\n", path);
+        throw IOError.Write;
 }
 
-public void writeBinaryFile(NativeString path, List<uint8_t> data)
+public void writeBinaryFile(NativeString path, List<uint8_t> data) throws IOError
 {
-    writeBinaryFile(path, data.data, data.size);
+    try writeBinaryFile(path, data.data, data.size);
 }
 
-public U8String readTextFile(NativeString path)
+public U8String readTextFile(NativeString path) throws IOError
 {
-    List<uint8_t> l = readBinaryFile(path);
+    List<uint8_t> l = try readBinaryFile(path);
     return U8String::fromList(l);
 }
 
-public void writeTextFile(NativeString path, U8String data)
+public void writeTextFile(NativeString path, U8String data) throws IOError
 {
-    writeBinaryFile(path, data.asList());
+    try writeBinaryFile(path, data.asList());
 }
 
-public void writeTextFile(NativeString path, NativeString data)
+public void writeTextFile(NativeString path, NativeString data) throws IOError
 {
-    writeBinaryFile(path, stringToPtr<uint8_t>(data), data.length);
+    try writeBinaryFile(path, stringToPtr<uint8_t>(data), data.length);
 }

@@ -1,7 +1,6 @@
 import hash;
 import array;
 import memory;
-import panic;
 import drop;
 
 public struct HashMap<K, T>: IDroppable

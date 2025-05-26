@@ -1,6 +1,7 @@
 import io;
 import drop;
 import string;
+import panic;
 import list;
 import test;
 
@@ -11,20 +12,27 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     for (int i = 0; i < 32; ++i)
         data.push(uint8_t(i));
 
-    writeBinaryFile("io_test.bin", data.data, data.size);
-    data.drop();
-    data = readBinaryFile("io_test.bin");
-    test(data.size == 32, "read size");
-    for (int i = 0; i < 32; ++i)
-        test(data.data[i] == i, "read data");
-    data.drop();
+    do
+    {
+        try writeBinaryFile("io_test.bin", data.data, data.size);
+        data.drop();
+        data = try readBinaryFile("io_test.bin");
+        test(data.size == 32, "read size");
+        for (int i = 0; i < 32; ++i)
+            test(data.data[i] == i, "read data");
+        data.drop();
 
-    writeTextFile("io_test.txt", "Hello world!");
+        try writeTextFile("io_test.txt", "Hello world!");
 
-    U8String str = readTextFile("io_test.txt");
-    defer str.drop();
+        U8String str = try readTextFile("io_test.txt");
+        defer str.drop();
 
-    test(str == "Hello world!", "text IO");
+        test(str == "Hello world!", "text IO");
+    }
+    catch
+    {
+        panic("Unexpect IOError!");
+    }
 
     return 0;
 }
