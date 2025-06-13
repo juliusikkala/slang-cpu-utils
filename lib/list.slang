@@ -3,7 +3,8 @@ import memory;
 import drop;
 import span;
 
-public struct List<T>: IRWBigArray<T>
+public struct List<T>: IRWBigArray<T>, IDroppable
+    where optional T: IDroppable
 {
     Ptr<T> _data;
     size_t _capacity;
@@ -27,8 +28,10 @@ public struct List<T>: IRWBigArray<T>
     */
 
     [mutating]
-    void _baseDrop()
+    public void drop()
     {
+        if (T is IDroppable)
+            clear();
         if (_data != nullptr)
             deallocate<T>(_data);
         _data = nullptr;
@@ -59,8 +62,17 @@ public struct List<T>: IRWBigArray<T>
     }
 
     [mutating]
-    void _baseResize(size_t newSize, T defaultValue)
+    public void resize(size_t newSize, T defaultValue = T())
     {
+        if (T is IDroppable)
+        {
+            if (newSize < _size)
+            {
+                for (size_t i = newSize; i < _size; ++i)
+                    _data[i].drop();
+            }
+        }
+
         if (newSize > _capacity)
             reserve(newSize);
 
@@ -113,8 +125,14 @@ public struct List<T>: IRWBigArray<T>
     }
 
     [mutating]
-    void _baseErase(size_t fromIndex, size_t count)
+    public void erase(size_t fromIndex, size_t count)
     {
+        if (T is IDroppable)
+        {
+            for (size_t i = fromIndex; i < min(fromIndex+count, _size); ++i)
+                _data[i].drop();
+        }
+
         if (fromIndex >= _size)
             return;
 
@@ -166,77 +184,17 @@ public struct List<T>: IRWBigArray<T>
     }
 
     [mutating]
-    void _baseClear()
+    public void clear()
     {
+        if (T is IDroppable)
+        {
+            if (_data != nullptr)
+            {
+                for (size_t i = 0; i < _size; ++i)
+                    _data[i].drop();
+            }
+        }
         _size = 0;
-    }
-}
-
-public extension<T: IDroppable> List<T>: IDroppable
-{
-    [mutating]
-    public void drop()
-    {
-        clear();
-        _baseDrop();
-    }
-
-    [mutating]
-    public void resize(size_t newSize, T defaultValue = T())
-    {
-        if (newSize < _size)
-        {
-            for (size_t i = newSize; i < _size; ++i)
-                _data[i].drop();
-        }
-        _baseResize(newSize, defaultValue);
-    }
-
-    [mutating]
-    public void erase(size_t fromIndex, size_t count)
-    {
-        for (size_t i = fromIndex; i < min(fromIndex+count, _size); ++i)
-            _data[i].drop();
-
-        _baseErase(fromIndex, count);
-    }
-
-    [mutating]
-    public void clear()
-    {
-        if (_data != nullptr)
-        {
-            for (size_t i = 0; i < _size; ++i)
-                _data[i].drop();
-        }
-        _baseClear();
-    }
-}
-
-public extension<T> List<T>: IDroppable
-{
-    [mutating]
-    public void drop()
-    {
-        _baseDrop();
-    }
-
-    [mutating]
-    public void resize(size_t newSize, T defaultValue = T())
-    {
-        _baseResize(newSize, defaultValue);
-    }
-
-    [mutating]
-    public void erase(size_t fromIndex, size_t count)
-    {
-        _baseErase(fromIndex, count);
-    }
-
-    [mutating]
-    public void clear()
-    {
-        _baseClear();
     }
 }
 

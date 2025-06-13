@@ -1,6 +1,7 @@
 import sort;
 import drop;
 import list;
+import array;
 import test;
 
 static uint seed = 0;
@@ -26,10 +27,10 @@ void generateRandomFloats(inout List<float> l, float bottom, float top)
         l[i] = float(pcg()) * 2.3283064365386963e-10f * (top-bottom) + bottom;
 }
 
-bool isInOrder<T>(List<T> l)
-    where T: IComparable
+bool isInOrder<T: IBigArray<U>, U>(T l)
+    where U: IComparable
 {
-    for (size_t i = 1; i < l.size; ++i)
+    for (size_t i = 1; i < l.getSize(); ++i)
     {
         if (l[i].lessThan(l[i-1]))
         {
