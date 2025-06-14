@@ -122,12 +122,11 @@ public struct HashMap<K, T>: IDroppable
         {
             if (_keys[*index] == key)
             {
-                _values[*index] = value;
                 if (T is IDroppable)
-                {
+                    _values[*index].drop();
+                _values[*index] = value;
+                if (K is IDroppable)
                     key.drop();
-                    value.drop();
-                }
                 return false; // Already exists.
             }
             else
@@ -219,6 +218,8 @@ public struct HashMap<K, T>: IDroppable
 
     public void setValueByIndex(size_t index, T value)
     {
+        if (T is IDroppable)
+            _values[index].drop();
         _values[index] = value;
     }
 
