@@ -105,5 +105,11 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     test(l.size == 0, "erase 2 size");
     test(drops == 55, "erase 2 drop (%d)", drops);
 
+    drops = 0;
+    l.resize(7, placeholder);
+    l.drop();
+    test(drops == 56, "drop drops");
+    test(l.size == 0, "drop clears");
+
     return 0;
 }

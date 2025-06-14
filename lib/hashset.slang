@@ -2,9 +2,10 @@ import hash;
 import array;
 import memory;
 import drop;
+import equal;
 
 public struct HashSet<T>: IDroppable, IBigArray<T>
-    where T: IHashable, IComparable
+    where T: IHashable, IEqual
     where optional T: IDroppable
 {
     private size_t _indexCounter;
@@ -43,10 +44,10 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
 
     public bool contains(T key)
     {
-        size_t index = _hashes[key.hash()];
+        size_t index = _hashes[key.hash() & getHashMask()];
         while (index != size_t.maxValue)
         {
-            if (_data[index].equals(key))
+            if (_data[index] == key)
                 return true;
             else
                 index = _next[index];
@@ -86,7 +87,8 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         }
     }
 
-    // Returns false if the key already existed.
+    // Returns false if the key already existed. Always takes ownership of the
+    // key.
     [mutating]
     public bool add(T key)
     {
@@ -98,8 +100,12 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         Ptr<size_t> index = _hashes + int64_t(h);
         while (*index != size_t.maxValue)
         {
-            if (_data[*index].equals(key))
+            if (_data[*index] == key)
+            {
+                if (T is IDroppable)
+                    key.drop();
                 return false; // Already exists.
+            }
             else
                 index = _next + int64_t(*index);
         }
@@ -112,7 +118,8 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         return true;
     }
 
-    // Returns index to next entry after erase. 
+    // Returns index to next entry after erase.
+    // Does not drop the given key.
     [mutating]
     public Optional<size_t> remove(T key)
     {
@@ -121,7 +128,7 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         Ptr<size_t> index = _hashes + int64_t(h);
         while (*index != size_t.maxValue)
         {
-            if (_data[*index].equals(key))
+            if (_data[*index] == key)
                 break;
             else
                 index = _next + int64_t(*index);
@@ -134,19 +141,20 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         // Destruct the found entry.
         if (T is IDroppable)
             _data[*index].drop();
+        size_t i = *index;
         *index = _next[*index];
 
         size_t lastIndex = _indexCounter-1;
         // Swap with last value
-        if (*index != lastIndex)
+        if (i != lastIndex)
         {
-            _data[*index] = _data[lastIndex];
-            h = _data[*index].hash() & getHashMask();
+            _data[i] = _data[lastIndex];
+            h = _data[i].hash() & getHashMask();
             Ptr<size_t> prevIndex = _hashes + int64_t(h);
             while (*prevIndex != lastIndex)
                 prevIndex = _next + int64_t(*prevIndex);
-            *prevIndex = *index;
-            _next[*index] = _next[lastIndex];
+            *prevIndex = i;
+            _next[i] = _next[lastIndex];
         }
         _indexCounter--;
         return *index;

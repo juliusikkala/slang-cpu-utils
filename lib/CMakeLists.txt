@@ -22,6 +22,7 @@ add_slang_library(scl
     string.slang
     io.slang
     time.slang
+    equal.slang
 )
 
 target_link_libraries(scl Threads::Threads)

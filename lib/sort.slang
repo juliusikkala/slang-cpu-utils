@@ -95,6 +95,13 @@ public void merge<T, A: IBigArray<T>, B: IRWBigArray<T>, C: IFunc<bool, T, T>>(
     }
 }
 
+public void reverse<T, A: IRWBigArray<T>>(inout A l)
+{
+    size_t size = l.getSize();
+    for (size_t k = 0; k < size/2; ++k)
+        swap(l[k], l[size-1-k]);
+}
+
 //==============================================================================
 // SORTING ALGORITHMS
 //==============================================================================
