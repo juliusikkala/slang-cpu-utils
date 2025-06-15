@@ -9,35 +9,91 @@ import list;
 import string;
 import io;
 
+Optional<double> parseFloatOrAns(List<double> ans, U8String str, inout int offset)
+{
+    if (str[offset] == '$')
+    {
+        ++offset;
+        let index = parseInt(str.cStr, offset);
+        if (!index.hasValue || index.value >= ans.size || index.value < 0)
+            return none;
+        return ans[uint(index.value)];
+    }
+    return parseFloat(str.cStr, offset, true);
+}
+
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
-    List<int> array;
-    defer drop(array);
+    List<double> ans;
+    defer ans.drop();
 
-    for(int i = 9; i >= 0; --i)
-        array.push(i);
+    for(;;)
+    {
+        let maybeLine = readLine();
+        if (!maybeLine.hasValue)
+            break;
+        U8String line = maybeLine.value;
+        defer line.drop();
 
-    int offset = 0;
-    printf("%ld\n", parseInt("66", offset).value);
-    printf("> ");
+        int offset = 0;
+        skipWhitespace(line.cStr, offset);
+        let a = parseFloatOrAns(ans, line, offset);
+        skipWhitespace(line.cStr, offset);
+        let op = line[offset];
+        if (line[offset] != 0) ++offset;
+        skipWhitespace(line.cStr, offset);
+        let b = parseFloatOrAns(ans, line, offset);
+        skipWhitespace(line.cStr, offset, true);
+        if (!a.hasValue)
+        {
+            printf("Failed to parse first number\n");
+            continue;
+        }
+        if (!b.hasValue)
+        {
+            printf("Failed to parse second number\n");
+            continue;
+        }
 
-    Optional<U8String> line = readLine();
-    defer drop(line);
+        if (line[offset] != 0)
+        {
+            printf("Unexpected characters at end of line\n");
+            continue;
+        }
 
-    if (let str = line)
-        printf("%s", str.cStr);
-    else
-        printf("(closed)\n");
+        double result;
+        bool parsed = true;
+        switch (op)
+        {
+        case '+':
+            result = a.value + b.value;
+            break;
+        case '-':
+            result = a.value - b.value;
+            break;
+        case '*':
+            result = a.value * b.value;
+            break;
+        case '/':
+            result = a.value / b.value;
+            break;
+        case '^':
+            result = pow(a.value, b.value);
+            break;
+        default:
+            parsed = false;
+            break;
+        }
 
-    radixSort(array);
+        if (!parsed)
+        {
+            printf("Unknown operator %c\n", op);
+            continue;
+        }
 
-    U8String src = readTextFile("calculator.slang");
-    defer drop(src);
-
-    printf("%s\n", src.cStr);
-
-    for(int i = 0; i < array.getSize(); ++i)
-        printf("[%d]: %d\n", i, array[i]);
+        printf("$%lu = %f\n", ans.size, result);
+        ans.push(result);
+    }
 
     return 0;
 }

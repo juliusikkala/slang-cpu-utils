@@ -52,6 +52,7 @@ Various modules to ease CPU development with Slang.
 * `hashset.slang`: a hash set (similar to `std::unordered_set`)
 * `sort.slang`: sorting algorithms
 * `time.slang`: timing & sleep utilities
+* `equal.slang`: `IEqual`, a subset of `IComparable`
 
 Interfaces are subject to change. Slang is still a quickly evolving language; if
 a cleaner way to implement things is added to the language, it should be adopted
@@ -59,8 +60,9 @@ in this library.
 
 ## example
 
-Example CPU Slang projects, showing how to use these utilities. They also work
-as "tests" until I get around to setting up a proper unit testing system.
+Example CPU Slang projects, showing how to use these utilities.
+
+* `cmdline-calculator`: A simple command line calculator (string handling & List)
 
 # Limitations of using Slang on CPU
 

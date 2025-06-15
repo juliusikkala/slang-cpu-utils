@@ -102,6 +102,22 @@ public Optional<double> parseFloat(NativeString str, inout int offset, bool allo
     return negative ? -result : result;
 }
 
+public bool isWhitespace(uint8_t c, bool newline = false)
+{
+    if (c == ' ' || c == '\t')
+        return true;
+    if (newline && (c == '\n' || c == '\r'))
+        return true;
+    return false;
+}
+
+public void skipWhitespace(NativeString str, inout int offset, bool newline = false)
+{
+    Ptr<uint8_t> string = stringToPtr<uint8_t>(str);
+    while (isWhitespace(string[offset], newline))
+        offset++;
+}
+
 public uint codePointLength(NativeString u8str, size_t offset = 0)
 {
     Ptr<int8_t> str = stringToPtr<int8_t>(u8str) + int64_t(offset);
