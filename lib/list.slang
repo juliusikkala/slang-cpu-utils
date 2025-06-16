@@ -27,6 +27,15 @@ public struct List<T>: IRWBigArray<T>, IDroppable
     }
     */
 
+    public List<T> clone()
+    {
+        var other = List<T>();
+        other.reserve(_size);
+        other._size = _size;
+        copyBytes(Ptr<void>(other._data), Ptr<void>(_data), _size * strideof<T>());
+        return other;
+    }
+
     [mutating]
     public void drop()
     {

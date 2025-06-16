@@ -22,6 +22,7 @@ public Optional<int64_t> parseInt(NativeString str, inout int offset, int radix 
     int64_t result = 0;
     bool found = false;
     bool negative = false;
+    int originalOffset = offset;
 
     while (string[offset] != 0)
     {
@@ -50,7 +51,10 @@ public Optional<int64_t> parseInt(NativeString str, inout int offset, int radix 
     }
 
     if (!found)
+    {
+        offset = originalOffset;
         return none;
+    }
 
     return negative ? -result : result;
 }
@@ -62,7 +66,7 @@ public Optional<double> parseFloat(NativeString str, inout int offset, bool allo
     bool found = false;
     bool negative = false;
     bool decimals = false;
-    double decimal_mul = 0.1;
+    double decimal_div = 10;
 
     while (string[offset] != 0)
     {
@@ -89,8 +93,8 @@ public Optional<double> parseFloat(NativeString str, inout int offset, bool allo
 
         if (decimals)
         {
-            result += decimal_mul * double(a);
-            decimal_mul *= 0.1;
+            result += double(a) / decimal_div;
+            decimal_div *= 10;
         }
         else
             result = result * 10 + double(a);
@@ -151,7 +155,7 @@ public size_t codePointStringLength(NativeString str, size_t offset = 0)
     return count;
 }
 
-// Adapted from PDCursesMod
+// Adapted from PDCursesMod (public domain)
 public uint32_t utf8ToUtf32(NativeString str, size_t offset = 0)
 {
     Ptr<uint8_t> string = stringToPtr<uint8_t>(str) + int64_t(offset);
@@ -180,6 +184,37 @@ public uint32_t utf8ToUtf32(NativeString str, size_t offset = 0)
     return key;
 }
 
+public int utf32ToUtf8(uint32_t c, inout uint8_t o[4])
+{
+    if (c < 0x80)
+    {
+        o[0] = uint8_t(c);
+        return 1;
+    }
+    else if (c < 0x800)
+    {
+        o[0] = uint8_t(0b11000000 | (c >> 6));
+        o[1] = uint8_t(0b10000000 | (c & 0x3F));
+        return 2;
+    }
+    else if (c < 0x10000)
+    {
+        o[0] = uint8_t(0b11100000 | (c >> 12));
+        o[1] = uint8_t(0b10000000 | ((c >> 6) & 0x3F));
+        o[2] = uint8_t(0b10000000 | (c & 0x3F));
+        return 3;
+    }
+    else if (c < 0x200000)
+    {
+        o[0] = uint8_t(0b11110000 | (c >> 18));
+        o[1] = uint8_t(0b10000000 | ((c >> 12) & 0x3F));
+        o[2] = uint8_t(0b10000000 | ((c >> 6) & 0x3F));
+        o[3] = uint8_t(0b10000000 | (c & 0x3F));
+        return 4;
+    }
+    return 0;
+}
+
 public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
 {
     private List<uint8_t> _data;
@@ -195,6 +230,13 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
         append(str);
     }
 
+    public U8String clone()
+    {
+        U8String other;
+        other._data = _data.clone();
+        return other;
+    }
+
     // DO NOT drop() the return value!
     public List<uint8_t> asList()
     {
@@ -208,6 +250,7 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
         return l;
     }
 
+    // Consumes given list
     public static U8String fromList(inout List<uint8_t> l)
     {
         U8String result;
@@ -302,10 +345,13 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     }
 
     [mutating]
-    public void appendChar(uint8_t c)
+    public void appendChar(uint32_t c)
     {
         ensureNullTerminator();
-        _data.insert(getSize(), c);
+
+        uint8_t chars[4];
+        int count = utf32ToUtf8(c, chars);
+        _data.insert(getSize(), Span<uint8_t>(&chars[0], count));
     }
 
     [mutating]
@@ -359,6 +405,11 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
 
     public bool equals(U8String other)
     {
+        // Since 'equals' doesn't care about order, we can quickly determine an
+        // inequality with length. 'lessThan' and 'lessThanOrEquals' don't have
+        // this convenience.
+        if (other.length != length)
+            return false;
         return cmp(other) == 0;
     }
 
@@ -391,4 +442,9 @@ public bool operator==(U8String a, NativeString b)
 public bool operator==(NativeString a, U8String b)
 {
     return ((b.cStr) == a);
+}
+
+public bool operator==(U8String a, U8String b)
+{
+    return a.equals(b);
 }
