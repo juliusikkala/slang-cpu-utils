@@ -7,6 +7,7 @@ import clang.cindex as cx
 allowed_files = set()
 cur_indent = 0
 ignore_output = False
+global_output_file = None
 def push_indent():
     global cur_indent
     cur_indent += 1
@@ -17,8 +18,13 @@ def pop_indent():
 
 def output(s):
     global ignore_output
+    global global_output_file
     if not ignore_output:
-        print("    " * cur_indent + str(s))
+        line = "    " * cur_indent + str(s)
+        if global_output_file is not None:
+            global_output_file.write(line+"\n")
+        else:
+            print(line)
 
 struct_forward_declarations = set()
 declared_types = set()
@@ -474,10 +480,15 @@ def main():
     parser.add_option("--import", action="append", dest="import_modules")
     parser.add_option("--using", action="append", dest="using_namespaces")
     parser.add_option("--imported", action="append", dest="imported_sources")
+    parser.add_option("--output", action="store", dest="output_file")
     opts, args = parser.parse_args()
     if len(args) == 0:
         print("Usage: " + sys.argv[0] + " <C headers>...")
         sys.exit(1)
+
+    global global_output_file
+    if opts.output_file is not None:
+        global_output_file = open(opts.output_file, 'w')
 
     output("// Auto-generated bindings by slang-bindgen.py, from headers:")
     for path in args:
@@ -546,6 +557,9 @@ def main():
 
     if opts.namespace:
         output("}")
+
+    if global_output_file is not None:
+        global_output_file.close()
 
 if __name__ == '__main__':
     main()
