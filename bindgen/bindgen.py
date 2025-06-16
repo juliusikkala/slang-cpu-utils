@@ -480,6 +480,7 @@ def main():
     parser.add_option("--import", action="append", dest="import_modules")
     parser.add_option("--using", action="append", dest="using_namespaces")
     parser.add_option("--imported", action="append", dest="imported_sources")
+    parser.add_option("--define", action="append", dest="defines")
     parser.add_option("--output", action="store", dest="output_file")
     opts, args = parser.parse_args()
     if len(args) == 0:
@@ -512,11 +513,21 @@ def main():
         output("namespace " + opts.namespace + " {")
 
     # Silently ignore decls from imported sources
+    cOptions = (
+        cx.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD |
+        cx.TranslationUnit.PARSE_INCOMPLETE |
+        cx.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
+    )
+    cArgs = []
+    if opts.defines is not None:
+        for define in opts.defines:
+            cArgs.append("-D"+define)
+
     if opts.imported_sources is not None:
         global ignore_output
         ignore_output = True
         for path in opts.imported_sources:
-            tu = index.parse(path, options=cx.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+            tu = index.parse(path, args=cArgs, options=cOptions)
             root = tu.cursor
             cur_realpath = os.path.realpath(path);
             for decl in root.get_children():
@@ -531,7 +542,7 @@ def main():
 
     # Then output the bindings for the actually requested sources.
     for path in args:
-        tu = index.parse(path, options=cx.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+        tu = index.parse(path, args=cArgs, options=cOptions)
         root = tu.cursor
         cur_realpath = os.path.realpath(path);
 
