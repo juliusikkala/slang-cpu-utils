@@ -71,7 +71,7 @@ examples are also about showing how to use CMake with Slang.
 * `cmdline-calculator`: A simple command line calculator (string handling & List)
     - Shows string parsing, List<T>
 * `simple-vulkan`: Initializes Vulkan and shows a simple animation
-    - [*This is in a separate repo, and shows how a standalone project can depend on this library!*](https://github.com/juliusikkala/slang-cpu-utils)
+    - [*This is in a separate repo, and shows how a standalone project can depend on this library!*](https://github.com/juliusikkala/slang-simple-vulkan)
     - Shows using C libraries (SDL, Vulkan)
 
 # Limitations of using Slang on CPU
