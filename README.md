@@ -66,7 +66,13 @@ The examples have their own CMake projects and aren't built as subdirectories of
 the top-level CMake file. This is done for illustratory purposes, as the
 examples are also about showing how to use CMake with Slang.
 
+* `function-fitting`: A tool for fitting 1D functions using gradient descent
+    - Shows List<T>, drop(), timing
 * `cmdline-calculator`: A simple command line calculator (string handling & List)
+    - Shows string parsing, List<T>
+* `simple-vulkan`: Initializes Vulkan and shows a simple animation
+    - [*This is in a separate repo, and shows how a standalone project can depend on this library!*](https://github.com/juliusikkala/slang-cpu-utils)
+    - Shows using C libraries (SDL, Vulkan)
 
 # Limitations of using Slang on CPU
 
