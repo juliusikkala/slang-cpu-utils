@@ -76,13 +76,14 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     test(codePointStringLength("hyvää päivää 𱁬") == 14, "codePointStringLength");
 
     {
-        var testString = U8String(R"(
-Itse tieän rauan synnyn,
-arvoan alun teräksen:
-ilma on emoja ensin,
-vesi vanhin veljeksiä,
-rauta nuorin veljeksiä,
-tuli kerran keskimäinen.)"
+        var testString = U8String(
+            "\n"
+            "Itse tieän rauan synnyn,\n"
+            "arvoan alun teräksen:\n"
+            "ilma on emoja ensin,\n"
+            "vesi vanhin veljeksiä,\n"
+            "rauta nuorin veljeksiä,\n"
+            "tuli kerran keskimäinen."
         );
         test(testString.length == 145, "U8String.length %lu", testString.length);
         test(testString.getSize() == 145, "U8String.getSize");

@@ -13,6 +13,29 @@ Currently, much of this has only been tested on Linux. Windows-related fixed and
 extra tools are very welcome as PRs! It's also unstable. No warranties. See
 [LICENSE](LICENSE) for details.
 
+## Building
+
+To build the utility library and tests in this repository, you need to have Slang binaries available somewhere. This project often uses latest and experimental features of the compiler, so it's best to download or compile the latest version.
+
+If you have Slangc installed system-wide, the toolchain files should just find it. Otherwise, you'll need to use the `CMAKE_Slang_COMPILER` option to provide the path.
+
+### Linux
+
+### Windows
+
+I'm not a Windows expert, but I got this compiling on Windows with the method below. If you've got a simpler way to do this, please let me know!
+
+1. Install [CMake](https://cmake.org), [Ninja](https://ninja-build.org) and [Visual Studio 2022](https://visualstudio.microsoft.com/vs/) (Community edition is fine, we just need the MSVC compiler from this).
+2. Open "x64 Native Tools Command Prompt for VS 2022" from the Windows start menu
+3. Navigate to the root of this repository.
+4. Run `cmake -G Ninja -S . -B build` [^1][^2]
+5. Run `cmake --build build` [^3][^4]
+
+[^1]: It's important to specify Ninja as the generator, as the Visual Studio generator does not appear to deal with custom languages too well.
+[^2]: If this doesn't find the Slang compiler, you should give CMake the path to it, so `cmake -G Ninja -S . -B build -DCMAKE_Slang_Compiler=C:\path\to\your\slang\bin\slangc`.
+[^3]: If you see a bunch of errors about imports from the Slang compiler, you'll just need to run this command again. It's got something to do with the depfiles on Windows and Ninja...
+[^4]: If you see a bunch of other errors, it's likely that an old version of Slang was found (e.g. the version that comes with Vulkan SDK). So you should define the path to your newer build in that case as well.
+
 ## cmake
 
 This directory contains toolchain files for compiling Slang CPU software with

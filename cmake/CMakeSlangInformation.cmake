@@ -28,9 +28,15 @@ set(CMAKE_Slang_COMPILE_OBJECT
 set(CMAKE_Slang_OUTPUT_EXTENSION -module)
 
 # Build a executable 
-set(CMAKE_Slang_LINK_EXECUTABLE 
-    "<CMAKE_Slang_COMPILER> -target executable <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... -w <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
-)
+if (WIN32)
+    set(CMAKE_Slang_LINK_EXECUTABLE 
+        "<CMAKE_Slang_COMPILER> -target executable <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
+    )
+elseif(UNIX)
+    set(CMAKE_Slang_LINK_EXECUTABLE 
+        "<CMAKE_Slang_COMPILER> -target executable <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... -w <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
+    )
+endif()
 
 set(CMAKE_Slang_LINKER_PREFERENCE Slang) 
 set(CMAKE_Slang_INFORMATION_LOADED 1)

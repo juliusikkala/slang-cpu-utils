@@ -1,8 +1,11 @@
 void force_stderr()
 {
+    // Can't do this trick on Windows
+#ifndef SLANG_PLATFORM_WIN32
     // stdout must be flushed before swapping it out, otherwise the preceding 
     // output may get skipped.
     __intrinsic_asm "fflush(stdout); stdout = stderr;";
+#endif
 }
 
 public void abort()
