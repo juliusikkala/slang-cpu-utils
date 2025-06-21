@@ -15,11 +15,23 @@ extra tools are very welcome as PRs! It's also unstable. No warranties. See
 
 ## Building
 
-To build the utility library and tests in this repository, you need to have Slang binaries available somewhere. This project often uses latest and experimental features of the compiler, so it's best to download or compile the latest version.
+To build the utility library and tests in this repository, you need to have Slang binaries available somewhere.
+This project often uses latest and experimental features of the compiler, so it's best to download or compile the latest version.
+If you have Slangc installed system-wide, the toolchain files should just find it.
+Otherwise, you'll need to use the `CMAKE_Slang_COMPILER` option to provide the path.
 
-If you have Slangc installed system-wide, the toolchain files should just find it. Otherwise, you'll need to use the `CMAKE_Slang_COMPILER` option to provide the path.
+Note that these instructions just build the tests. To build the examples, you'll
+need to go into their directories in `example` and run the cmake commands there.
+To use the library in a project, see [this sample.](https://github.com/juliusikkala/slang-simple-vulkan)
 
 ### Linux
+
+You'll need to install cmake. Then:
+
+```sh
+cmake -S . -B build
+cmake --build build
+```
 
 ### Windows
 
