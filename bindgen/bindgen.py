@@ -4,6 +4,9 @@ import os
 import optparse
 import clang.cindex as cx
 
+if os.path.exists('C:/Program Files/LLVM/bin/libclang.dll'):
+    cx.Config.set_library_file('C:/Program Files/LLVM/bin/libclang.dll')
+
 allowed_files = set()
 cur_indent = 0
 ignore_output = False
@@ -481,6 +484,7 @@ def main():
     parser.add_option("--using", action="append", dest="using_namespaces")
     parser.add_option("--imported", action="append", dest="imported_sources")
     parser.add_option("--define", action="append", dest="defines")
+    parser.add_option("--include-dir", action="append", dest="include_dirs")
     parser.add_option("--output", action="store", dest="output_file")
     opts, args = parser.parse_args()
     if len(args) == 0:
@@ -522,6 +526,10 @@ def main():
     if opts.defines is not None:
         for define in opts.defines:
             cArgs.append("-D"+define)
+
+    if opts.include_dirs is not None:
+        for path in opts.include_dirs:
+            cArgs.append("-I"+path)
 
     if opts.imported_sources is not None:
         global ignore_output
