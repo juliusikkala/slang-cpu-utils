@@ -28,13 +28,11 @@ I'm not a Windows expert, but I got this compiling on Windows with the method be
 1. Install [CMake](https://cmake.org), [Ninja](https://ninja-build.org) and [Visual Studio 2022](https://visualstudio.microsoft.com/vs/) (Community edition is fine, we just need the MSVC compiler from this).
 2. Open "x64 Native Tools Command Prompt for VS 2022" from the Windows start menu
 3. Navigate to the root of this repository.
-4. Run `cmake -G Ninja -S . -B build` [^1][^2]
-5. Run `cmake --build build` [^3][^4]
-
-[^1]: It's important to specify Ninja as the generator, as the Visual Studio generator does not appear to deal with custom languages too well.
-[^2]: If this doesn't find the Slang compiler, you should give CMake the path to it, so `cmake -G Ninja -S . -B build -DCMAKE_Slang_Compiler=C:\path\to\your\slang\bin\slangc`.
-[^3]: If you see a bunch of errors about imports from the Slang compiler, you'll just need to run this command again. It's got something to do with the depfiles on Windows and Ninja...
-[^4]: If you see a bunch of other errors, it's likely that an old version of Slang was found (e.g. the version that comes with Vulkan SDK). So you should define the path to your newer build in that case as well.
+4. Run `cmake -G Ninja -S . -B build` 
+    - It's important to specify Ninja as the generator, as the Visual Studio generator does not appear to deal with custom languages too well.
+    - If this doesn't find the Slang compiler, you should give CMake the path to it, so `cmake -G Ninja -S . -B build -DCMAKE_Slang_COMPILER=C:/path/to/your/slang/bin/slangc`.
+5. Run `cmake --build build`
+    - If you see a bunch of errors from Slang, it's likely that an old version of Slang was found (e.g. the version that comes with Vulkan SDK). Go back to step 4 and define the path to your newer build.
 
 ## cmake
 
