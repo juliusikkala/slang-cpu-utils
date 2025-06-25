@@ -16,3 +16,20 @@ public struct Span<T> : IRWBigArray<T>
         set { data[i] = newValue; }
     }
 }
+
+public extension<T> Span<T>: IDifferentiablePtrType
+    where T: IDifferentiable
+{
+    public typealias Differential = Span<T.Differential>;
+}
+
+[BackwardDerivative(load_bwd)]
+public T load<T: IDifferentiable>(Span<T> span, size_t i)
+{
+    return span[i];
+}
+
+void load_bwd<T : IDifferentiable>(DifferentialPtrPair<Span<T>> pair, size_t i, T.Differential dOut)
+{
+    pair.d.data[i] = T.dadd(pair.d[i], dOut);
+}

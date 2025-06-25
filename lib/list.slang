@@ -58,6 +58,16 @@ public struct List<T>: IRWBigArray<T>, IDroppable
         get { return _data; }
     }
 
+    public property Span<T> span
+    {
+        get {
+            Span<T> res;
+            res.data = _data;
+            res.count = _size;
+            return res;
+        }
+    }
+
     // For IRWBigArray
     public size_t getSize()
     {
@@ -206,4 +216,3 @@ public struct List<T>: IRWBigArray<T>, IDroppable
         _size = 0;
     }
 }
-
