@@ -11,6 +11,7 @@ public extension<T: IComparable> T : IEqual
     }
 }
 
+[OverloadRank(-15)]
 public bool operator==<T: IEqual>(T a, T b)
 {
     return a.isEqual(b);
