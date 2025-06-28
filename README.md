@@ -6,7 +6,7 @@ streamline standalone [Slang](https://github.com/shader-slang/slang) application
 development.
 
 The tools are collected together like this, because they assume a common basis:
-[lib/platform.slang](`platform.slang`). This module maps C types to Slang
+[`platform.slang`](lib/platform.slang). This module maps C types to Slang
 equivalents to allow working with C bindings.
 
 All components of this library are MIT-0, so you can just use it without even
