@@ -7,22 +7,26 @@ development.
 
 The tools are collected together like this, because they assume a common basis:
 [lib/platform.slang](`platform.slang`). This module maps C types to Slang
-equivalents and defines platform-specific constants.
+equivalents to allow working with C bindings.
 
-Currently, much of this has only been tested on Linux. Windows-related fixed and
-extra tools are very welcome as PRs! It's also unstable. No warranties. See
-[LICENSE](LICENSE) for details.
+All components of this library are MIT-0, so you can just use it without even
+crediting anyone. No warranties though. See [LICENSE](LICENSE) for details.
 
 ## Building
 
-To build the utility library and tests in this repository, you need to have Slang binaries available somewhere.
-This project often uses latest and experimental features of the compiler, so it's best to download or compile the latest version.
-If you have Slangc installed system-wide, the toolchain files should just find it.
-Otherwise, you'll need to use the `CMAKE_Slang_COMPILER` option to provide the path.
+Currently, the only supported platforms are Linux and Windows.
+
+To build the utility library and tests in this repository, you need to have
+Slang binaries available somewhere. This project often uses latest and
+experimental features of the compiler, so it's best to download or compile the
+latest version. If you have Slangc installed system-wide, the toolchain files
+should just find it. Otherwise, you'll need to use the `CMAKE_Slang_COMPILER`
+option to provide the path.
 
 Note that these instructions just build the tests. To build the examples, you'll
 need to go into their directories in `example` and run the cmake commands there.
-To use the library in a project, see [this sample.](https://github.com/juliusikkala/slang-simple-vulkan)
+To use the binding generator and utility library in a project, see
+[this sample.](https://github.com/juliusikkala/slang-simple-vulkan)
 
 ### Linux
 
@@ -35,7 +39,9 @@ cmake --build build
 
 ### Windows
 
-I'm not a Windows expert, but I got this compiling on Windows with the method below. If you've got a simpler way to do this, please let me know!
+I'm not a Windows expert, but I got this compiling on Windows with the method
+below. If you've got a simpler way to do this, please let me know or submit a
+PR to update the instructions!
 
 1. Install [CMake](https://cmake.org), [Ninja](https://ninja-build.org) and [Visual Studio 2022](https://visualstudio.microsoft.com/vs/) (Community edition is fine, we just need the MSVC compiler from this).
 2. Open "x64 Native Tools Command Prompt for VS 2022" from the Windows start menu
@@ -46,7 +52,7 @@ I'm not a Windows expert, but I got this compiling on Windows with the method be
 5. Run `cmake --build build`
     - If you see a bunch of errors from Slang, it's likely that an old version of Slang was found (e.g. the version that comes with Vulkan SDK). Go back to step 4 and define the path to your newer build.
 
-## cmake
+## CMake toolchain (`cmake`)
 
 This directory contains toolchain files for compiling Slang CPU software with
 CMake. You can use them in your project by copying the `cmake` directory to your
@@ -60,40 +66,58 @@ project(<yourprojectname> LANGUAGES Slang)
 Alternatively, you can add slang-cpu-utils as a submodule and adjust the
 `CMAKE_MODULE_PATH` to match your directory structure.
 
-## bindgen
+## Binding generator (`bindgen`)
 
 This tool generates Slang bindings for C libraries, based on their headers. This
 allows you to seamlessly use C libraries in Slang. See [the readme for bindgen
 for more details.](bindgen/README.md).
 
-## lib
+## Utility library (`lib`)
 
-Various modules to ease CPU development with Slang.
+The utility library comes with various modules to ease CPU development with Slang:
 
-* `platform.slang`: platform-specific types and constants
-* `memory.slang`: memory management utilities
-* `panic.slang`: `panic()` for easily crashing the program with an error
-* `io.slang`: reading and writing files
-* `string.slang`: string handling helpers, `U8String`
-* `thread.slang`: multithreading
-* `drop.slang`: `IDroppable` interface for "destructors" where caller doesn't need to know the type
 * `array.slang`: `IBigArray` and `IRWBigArray`, see [limitations section](#limitations-of-using-slang-on-cpu) for explanation.
-* `span.slang`: a wrapper to make plain pointers into `IRWBigArray`
-* `list.slang`: a dynamically sized array (similar to `std::vector`)
+* `drop.slang`: `IDroppable` interface for "destructors" where caller doesn't need to know the type
+* `equal.slang`: `IEqual`, a subset of `IComparable` without ordering
 * `hash.slang`: utilities for computing hashes
 * `hashmap.slang`: a hash map (similar to `std::unordered_map`)
 * `hashset.slang`: a hash set (similar to `std::unordered_set`)
+* `io.slang`: reading and writing files
+* `list.slang`: a dynamically sized array (similar to `std::vector`)
+* `memory.slang`: memory management utilities
+* `panic.slang`: `panic()` for easily crashing the program with an error
+* `platform.slang`: platform-specific types and constants
 * `sort.slang`: sorting algorithms
+* `span.slang`: a wrapper to make plain pointers into `IRWBigArray`
+* `string.slang`: string handling helpers, `U8String`
+* `thread.slang`: multithreading
 * `time.slang`: timing & sleep utilities
-* `equal.slang`: `IEqual`, a subset of `IComparable`
 
 Interfaces are subject to change. Slang is still a quickly evolving language; if
 a cleaner way to implement things is added to the language, it should be adopted
-in this library.
+in this library. If the built-in modules of Slang gain a features that this
+library also provides, the corresponding feature will be removed from this
+library.
 
-## example
+The library provides a simplistic resource management scheme, `IDroppable`.
+This interface allows you to define a function called `drop()` to release
+allocated resources. The generic data structures in this library automatically
+call `drop()` when you remove or clear entries that are `IDroppable`. Other than
+that, you'll need to usually follow this pattern:
 
-Example CPU Slang projects, showing how to use these utilities.
+```slang
+List<int> l;
+defer l.drop();
+```
+
+All kinds of contributions to the utility library are highly welcome. The doors
+are open for any features that may be useful but don't (yet) fit for inclusion
+in the built-in modules of Slang.
+
+## Examples (`example`)
+
+This repo comes with a few example CPU Slang projects, showing how to use these
+utilities.
 
 The examples have their own CMake projects and aren't built as subdirectories of
 the top-level CMake file. This is done for illustratory purposes, as the
@@ -107,7 +131,7 @@ examples are also about showing how to use CMake with Slang.
     - [*This is in a separate repo, and shows how a standalone project can depend on this library!*](https://github.com/juliusikkala/slang-simple-vulkan)
     - Shows using C libraries (SDL, Vulkan)
 
-# Limitations of using Slang on CPU
+## Limitations of using Slang on CPU
 
 Here's an assortment of issues or inconveniences you can currently expect when
 working with Slang on the CPU.

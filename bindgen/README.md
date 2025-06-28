@@ -23,7 +23,7 @@ pip install -r requirements.txt
 ## Usage
 
 ```sh
-./bindgen.py [list of C headers] > mylibrarybindings.slang
+./bindgen.py [list of C headers] --output mylibrarybindings.slang
 ```
 
 There are also a couple of options available.
@@ -32,6 +32,9 @@ There are also a couple of options available.
 * `--using <ns>` adds a `using ns;` at the start (to be used in conjunction with `--namespace` and `--import`
 * `--import <module>` makes the result bindings import a Slang module
 * `--imported <header>` marks declarations from a C header as already included through a `--import` module
+* `--define A=B` use a preprocessor define when parsing headers
+* `--include-dir <path>` use the given include paths when parsing headers
+* `--output <output-file>` write the bindings to the given file.
 
 Declarations from the listed C headers are included, as well as type
 declarations from dependency includes from those headers. If you want bindings
