@@ -7,4 +7,4 @@ project(CmdlineCalculator LANGUAGES Slang)
 add_subdirectory("${CMAKE_SOURCE_DIR}/../../lib" lib)
 
 add_executable(calculator calculator.slang)
-target_link_libraries(calculator PRIVATE scl)
+target_link_libraries(calculator PRIVATE scul)

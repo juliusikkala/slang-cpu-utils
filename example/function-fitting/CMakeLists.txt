@@ -7,5 +7,5 @@ project(CmdlineCalculator LANGUAGES Slang)
 add_subdirectory("${CMAKE_SOURCE_DIR}/../../lib" lib)
 
 add_executable(function-fitting function-fitting.slang)
-target_link_libraries(function-fitting PRIVATE scl)
+target_link_libraries(function-fitting PRIVATE scul)
 

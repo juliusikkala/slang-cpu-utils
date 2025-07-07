@@ -2,11 +2,11 @@ cmake_minimum_required(VERSION 3.20)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../cmake")
 
-project(SCL LANGUAGES Slang C)
+project(SCUL LANGUAGES Slang C)
 
 find_package(Threads REQUIRED)
 
-add_slang_library(scl
+add_slang_library(scul
     platform.slang
     panic.slang
     drop.slang
@@ -25,4 +25,4 @@ add_slang_library(scl
     equal.slang
 )
 
-target_link_libraries(scl Threads::Threads)
+target_link_libraries(scul Threads::Threads)
