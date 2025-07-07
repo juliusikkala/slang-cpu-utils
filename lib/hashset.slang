@@ -173,6 +173,16 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         _indexCounter = 0;
     }
 
+    public property size_t size
+    {
+        get { return _indexCounter; }
+    }
+
+    public property Ptr<T> data
+    {
+        get { return _data; }
+    }
+
     // For IBigArray
     public size_t getSize()
     {

@@ -201,6 +201,21 @@ public struct HashMap<K, T>: IDroppable
         _indexCounter = 0;
     }
 
+    public property size_t size
+    {
+        get { return _indexCounter; }
+    }
+
+    public property Ptr<K> keys
+    {
+        get { return _keys; }
+    }
+
+    public property Ptr<T> values
+    {
+        get { return _values; }
+    }
+
     public size_t getSize()
     {
         return _indexCounter;
