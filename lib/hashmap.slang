@@ -50,6 +50,8 @@ public struct HashMap<K, T>: IDroppable
 
     public bool contains(K key)
     {
+        if(!_hashes) return false;
+
         size_t index = _hashes[key.hash() & getHashMask()];
         while (index != size_t.maxValue)
         {
@@ -63,6 +65,8 @@ public struct HashMap<K, T>: IDroppable
 
     public Optional<T> get(K key)
     {
+        if(!_hashes) return none;
+
         size_t index = _hashes[key.hash() & getHashMask()];
         while (index != size_t.maxValue)
         {
@@ -146,6 +150,8 @@ public struct HashMap<K, T>: IDroppable
     [mutating]
     public Optional<size_t> remove(K key)
     {
+        if(!_hashes) return none;
+
         // Remove old value
         uint64_t h = key.hash() & getHashMask();
         Ptr<size_t> index = _hashes + int64_t(h);
@@ -240,6 +246,8 @@ public struct HashMap<K, T>: IDroppable
 
     public Optional<size_t> getKeyIndex(K key)
     {
+        if(!_hashes) return none;
+
         size_t index = _hashes[key.hash() & getHashMask()];
         while (index != size_t.maxValue)
         {

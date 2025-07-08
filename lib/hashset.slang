@@ -44,6 +44,8 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
 
     public bool contains(T key)
     {
+        if(!_hashes) return false;
+
         size_t index = _hashes[key.hash() & getHashMask()];
         while (index != size_t.maxValue)
         {
@@ -185,6 +187,8 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
 
     public Optional<size_t> getIndex(T key)
     {
+        if(!_hashes) return none;
+
         size_t index = _hashes[key.hash() & getHashMask()];
         while (index != size_t.maxValue)
         {
