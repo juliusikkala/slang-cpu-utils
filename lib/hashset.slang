@@ -183,6 +183,19 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         get { return _data; }
     }
 
+    public Optional<size_t> getIndex(T key)
+    {
+        size_t index = _hashes[key.hash() & getHashMask()];
+        while (index != size_t.maxValue)
+        {
+            if (_data[index] == key)
+                return index;
+            else
+                index = _next[index];
+        }
+        return none;
+    }
+
     // For IBigArray
     public size_t getSize()
     {

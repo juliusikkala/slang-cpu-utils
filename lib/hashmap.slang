@@ -238,6 +238,19 @@ public struct HashMap<K, T>: IDroppable
         _values[index] = value;
     }
 
+    public Optional<size_t> getKeyIndex(K key)
+    {
+        size_t index = _hashes[key.hash() & getHashMask()];
+        while (index != size_t.maxValue)
+        {
+            if (_keys[index] == key)
+                return index;
+            else
+                index = _next[index];
+        }
+        return none;
+    }
+
     public __subscript(K key) -> Optional<T>
     {
         get {
