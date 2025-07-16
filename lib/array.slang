@@ -18,26 +18,29 @@ public interface IRWBigArray<T>: IBigArray<T>
     }
 }
 
-public extension<T, U: IArray<T>> U : IBigArray<T>
+public extension<T, let N:int> vector<T, N> : IRWBigArray<T>
 {
-    public size_t getSize()
-    {
-        return getCount();
-    }
-
+    public size_t getSize() { return getCount(); }
     public __subscript(size_t x) -> T
     {
         get { return this[int(x)]; }
+        set { this[int(x)] = newValue; }
     }
 }
 
-public extension<T, U: IRWArray<T>> U : IRWBigArray<T>
+public extension<T, let R : int, let C : int, let L : int> matrix<T, R, C, L> : IRWBigArray<vector<T, C>>
 {
-    public size_t getSize()
+    public size_t getSize() { return getCount(); }
+    public __subscript(size_t x) -> vector<T, C>
     {
-        return getCount();
+        get { return this[int(x)]; }
+        set { this[int(x)] = newValue; }
     }
+}
 
+public extension<T, let N:int> Array<T, N> : IRWBigArray<T>
+{
+    public size_t getSize() { return getCount(); }
     public __subscript(size_t x) -> T
     {
         get { return this[int(x)]; }

@@ -46,6 +46,29 @@ public extension<each T: IHashable> Tuple<T>: IHashable
     }
 }
 
+public uint64_t arrayHash<T : IHashable, U: IArray<T>>(in U arr)
+{
+    uint64_t h = 0;
+    for (int i = 0; i < arr.getCount(); ++i)
+        h = hashCombine(h, arr[i].hash());
+    return h;
+}
+
+public extension<T : IHashable, let N:int> vector<T, N> : IHashable
+{
+    public uint64_t hash() { return arrayHash(this); }
+}
+
+public extension<T : IHashable, let R : int, let C : int, let L : int> matrix<T, R, C, L> : IHashable
+{
+    public uint64_t hash() { return arrayHash(this); }
+}
+
+public extension<T : IHashable, let N:int> Array<T, N> : IHashable
+{
+    public uint64_t hash() { return arrayHash(this); }
+}
+
 public extension<T : IHashable> Optional<T>: IHashable
 {
     public uint64_t hash()
@@ -54,18 +77,6 @@ public extension<T : IHashable> Optional<T>: IHashable
             return val.hash();
         // "Chosen by a fair dice roll"
         return 0x898B5D104B0BA055;
-    }
-}
-
-// Also handles vector types, as those are IArray.
-public extension<U : IHashable, T : IArray<U>> T: IHashable
-{
-    public uint64_t hash()
-    {
-        uint64_t h = 0;
-        for (int i = 0; i < this.getCount(); ++i)
-            h = hashCombine(h, this[i].hash());
-        return h;
     }
 }
 
