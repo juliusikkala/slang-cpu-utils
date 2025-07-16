@@ -27,7 +27,7 @@ void generateRandomFloats(inout List<float> l, float bottom, float top)
         l[i] = float(pcg()) * 2.3283064365386963e-10f * (top-bottom) + bottom;
 }
 
-bool isInOrder<T: IBigArray<U>, U>(T l)
+bool isInOrder<U, T: IBigArray<U>>(T l)
     where U: IComparable
 {
     for (size_t i = 1; i < l.getSize(); ++i)
