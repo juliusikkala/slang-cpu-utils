@@ -35,6 +35,10 @@ There are also a couple of options available.
 * `--define A=B` use a preprocessor define when parsing headers
 * `--include-dir <path>` use the given include paths when parsing headers
 * `--output <output-file>` write the bindings to the given file.
+* `--unscoped-enums <enum-type-name>` uses unscoped enums for the listed types. Supports regular expressions.
+* `--remove-common-enum-prefix <prefix-regex>` removes given prefixes from all enum cases, but only if they are truly common to each case in that enum. Regular expressions are supported, only the matching part is removed from the longest prefix that is common to all cases.
+* `--enum-safe-prefix <string>` adds a string prefix to all enums that would otherwise not be legal identifiers due to e.g. starting with a number.
+* `--remove-enum-case <enum-case>` removes a case with the given name from all enums. This purely exists to nuke `VK_COLORSPACE_SRGB_NONLINEAR_KHR` out of orbit (note the missing underscore in `VK_COLOR_SPACE`), but maybe you can find some other uses for this.
 
 Declarations from the listed C headers are included, as well as type
 declarations from dependency includes from those headers. If you want bindings

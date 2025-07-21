@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import sys
 import os
+import re
 import optparse
 import clang.cindex as cx
 
@@ -28,6 +29,79 @@ def output(s):
             global_output_file.write(line+"\n")
         else:
             print(line)
+
+unscoped_enums = []
+remove_common_enum_prefix = []
+remove_enum_cases = []
+enum_safe_prefix = None
+
+def is_unscoped_enum(name):
+    for expr in unscoped_enums:
+        if expr.match(name) is not None:
+            return True
+    return False
+
+def filter_enum_cases(cases, values):
+    filtered_cases = []
+    filtered_values = []
+    for i in range(len(cases)):
+        matched = False
+        for expr in remove_enum_cases:
+            if expr.match(cases[i]) is not None:
+                matched = True
+                break
+        if matched:
+            continue
+        filtered_cases.append(cases[i])
+        filtered_values.append(values[i])
+    return filtered_cases, filtered_values
+
+
+def rewrite_enum_cases(cases):
+    if len(cases) == 0:
+        return cases
+
+    prefix = cases[0]
+    for case in cases[1:]:
+        match_len = 0
+        for a, b in zip(prefix, case):
+            if a == b:
+                match_len += 1
+            else:
+                break
+        prefix = prefix[:match_len]
+
+    longest_match = None
+    for expr in remove_common_enum_prefix:
+        s = expr.search(prefix)
+        if s is None:
+            continue
+        current_match = (s.group(), s.span())
+        if longest_match is None or len(longest_match[0]) < len(current_match[0]):
+            longest_match = current_match
+
+    if longest_match is None:
+        return cases
+
+    truncated_cases = []
+    for case in cases:
+        # Would remove this case entirely; hence, can't apply this prefix
+        # removal.
+        if len(longest_match[0]) == len(case):
+            return cases
+
+        new_case = case[:longest_match[1][0]] + case[longest_match[1][1]:]
+        if new_case[0].isdigit():
+            if enum_safe_prefix is not None:
+                new_case = enum_safe_prefix + new_case
+            else:
+                # Can't represent this enum correctly because it begins with a
+                # number and there's no prefix for us to use.
+                return cases
+        truncated_cases.append(new_case)
+
+    return truncated_cases
+
 
 struct_forward_declarations = set()
 declared_types = set()
@@ -391,12 +465,25 @@ def dump_enum(node, varname = "", fallback_name = ""):
         # Assume we added this enum already.
         return
     declared_types.add(name)
-    output("[UnscopedEnum]")
+    if is_unscoped_enum(name):
+        output("[UnscopedEnum]")
     output("public enum " + name + " : " + type_str(node.enum_type) + " { ")
     push_indent()
+
+    cases = []
+    values = []
     for decl in node.get_children():
         if decl.kind == cx.CursorKind.ENUM_CONSTANT_DECL:
-            output(decl.spelling + " = " + str(decl.enum_value) + ",")
+            cases.append(decl.spelling)
+            values.append(str(decl.enum_value))
+
+    cases, values = filter_enum_cases(cases, values)
+
+    cases = rewrite_enum_cases(cases)
+
+    for case, value in zip(cases, values):
+        output(case + " = " + value + ",")
+
     pop_indent()
     output("}"+varname+";")
 
@@ -486,6 +573,10 @@ def main():
     parser.add_option("--define", action="append", dest="defines")
     parser.add_option("--include-dir", action="append", dest="include_dirs")
     parser.add_option("--output", action="store", dest="output_file")
+    parser.add_option("--unscoped-enums", action="append", dest="unscoped_enums")
+    parser.add_option("--remove-common-enum-prefix", action="append", dest="remove_common_enum_prefix")
+    parser.add_option("--enum-safe-prefix", action="store", dest="enum_safe_prefix")
+    parser.add_option("--remove-enum-cases", action="append", dest="remove_enum_cases")
     opts, args = parser.parse_args()
     if len(args) == 0:
         print("Usage: " + sys.argv[0] + " <C headers>...")
@@ -515,6 +606,21 @@ def main():
 
     if opts.namespace:
         output("namespace " + opts.namespace + " {")
+
+    if opts.unscoped_enums is not None:
+        for expr in opts.unscoped_enums:
+            unscoped_enums.append(re.compile(expr))
+
+    if opts.remove_common_enum_prefix is not None:
+        for expr in opts.remove_common_enum_prefix:
+            remove_common_enum_prefix.append(re.compile(expr))
+
+    if opts.remove_enum_cases is not None:
+        for expr in opts.remove_enum_cases:
+            remove_enum_cases.append(re.compile(expr))
+
+    global enum_safe_prefix
+    enum_safe_prefix = opts.enum_safe_prefix
 
     # Silently ignore decls from imported sources
     cOptions = (
