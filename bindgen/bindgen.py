@@ -420,7 +420,10 @@ def dump_struct(node, varname = "", fallback_name = ""):
         if var_name in type_chain.spelling.split():
             var_name += "_"
         
-        output("public " + type_name + " " + var_name + ";")
+        field_str = "public " + type_name + " " + var_name
+        if decl.is_bitfield():
+            field_str += " : " + str(decl.get_bitfield_width())
+        output(field_str + ";")
 
     # Actually dump the structs.
     for decl in node.get_children():
