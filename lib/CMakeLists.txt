@@ -23,6 +23,7 @@ add_slang_library(scul
     io.slang
     time.slang
     equal.slang
+    random.slang
 )
 
 target_link_libraries(scul Threads::Threads)
