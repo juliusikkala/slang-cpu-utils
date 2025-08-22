@@ -4,6 +4,8 @@ elseif(UNIX)
     set(CMAKE_Slang_FLAGS_INIT "-DSLANG_PLATFORM_UNIX")
 endif()
 
+set(CMAKE_Slang_FLAGS_INIT "${CMAKE_Slang_FLAGS_INIT} -DSLANG_IS_HOST")
+
 # TODO: What if the downstream compiler is MSVC? Handle that case.
 set(CMAKE_Slang_FLAGS_DEBUG_INIT "-g3 -Xgenericcpp... -g -X.")
 set(CMAKE_Slang_FLAGS_RELEASE_INIT "-O3 -g0 -DNDEBUG -Xgenericcpp... -O2 -DNDEBUG -X.")
@@ -30,11 +32,11 @@ set(CMAKE_Slang_OUTPUT_EXTENSION -module)
 # Build a executable 
 if (WIN32)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target executable <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
+        "<CMAKE_Slang_COMPILER> -target executable -DSLANG_IS_HOST <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
     )
 elseif(UNIX)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target executable <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... -w <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
+        "<CMAKE_Slang_COMPILER> -target executable -DSLANG_IS_HOST <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... -w <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
     )
 endif()
 
