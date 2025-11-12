@@ -27,7 +27,6 @@ static struct {
     std::vector<std::string> importModules;
     std::vector<std::string> usingNamespaces;
     std::vector<std::string> importedSources;
-    std::vector<std::string> clangArgs;
     std::vector<std::string> defines;
     std::vector<std::string> includePaths;
     std::vector<std::regex> unscopedEnums;
@@ -36,50 +35,6 @@ static struct {
     std::string enumFallbackPrefix = "e";
     bool useByteBool = false;
 } options;
-
-struct BindingContext
-{
-    FILE* file = stdout;
-    int indentLevel = 0;
-
-    // Concretely sized names for builtin types with unpredictable size. 
-    std::string wcharType = "int16_t";
-    std::string shortType = "int16_t";
-    std::string intType = "int";
-    std::string longType = "int";
-
-    BindingContext(const std::string& outputPath)
-    {
-        if (!outputPath.empty())
-        {
-            file = fopen(outputPath.c_str(), "w");
-            if (!file)
-            {
-                fprintf(stderr, "Cannot open %s for writing\n", outputPath.c_str());
-                exit(1);
-            }
-        }
-    }
-
-    ~BindingContext()
-    {
-        if (file != stdout)
-        {
-            fclose(file);
-        }
-    }
-
-    void output(const char* format, ...)
-    {
-        for (int i = 0; i < indentLevel; ++i)
-            fprintf(file, "    ");
-        va_list args;
-        va_start(args, format);
-        vfprintf(file, format, args);
-        va_end(args);
-        fprintf(file, "\n");
-    }
-};
 
 static const char* const helpString = 
 R"(Usage: %s [list of C headers] --output <name>.slang
@@ -230,216 +185,120 @@ bool parseOptions(int argc, const char** argv)
     return true;
 }
 
-bool isUnscopedEnum(const std::string& enumName)
+size_t roundToAlignment(size_t size, size_t align)
 {
-    for (auto& expr: options.unscopedEnums)
-    {
-        if (std::regex_match(enumName, expr))
-            return true;
-    }
-    return false;
+    return (size+align-1)/align*align;
 }
 
-std::optional<std::string> maybeGetName(clang::TagDecl* decl)
+struct ClangSession;
+struct BindingContext
 {
-    clang::DeclarationName name = decl->getDeclName();
-    if (name)
-        return name.getAsString();
+    ClangSession* session = nullptr;
+    FILE* file = stdout;
+    int indentLevel = 0;
 
-    clang::TypedefNameDecl* typedefName = decl->getTypedefNameForAnonDecl();
-    if (typedefName)
-        return typedefName->getNameAsString();
+    int nameCounter = 0;
 
-    return {};
-}
+    // Concretely sized names for builtin types with unpredictable size. 
+    std::string wcharType = "int16_t";
+    std::string shortType = "int16_t";
+    std::string intType = "int";
+    std::string longType = "int";
 
-std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)
-{
-    const clang::Type& type = *qualType.getTypePtr();
-    std::string qualifier;
-    if (!omitQualifier)
+    int scopeDepth = 0;
+
+    std::vector<std::set<std::string>> definedTypes;
+    std::vector<std::set<std::string>> structForwardDeclarations;
+
+    BindingContext(const std::string& outputPath)
     {
-        if (qualType.isConstQualified())
-            qualifier += "const ";
-    }
-
-    if (type.isBuiltinType())
-    {
-        const clang::BuiltinType *builtin = type.getAs<clang::BuiltinType>();
-        switch (builtin->getKind())
+        if (!outputPath.empty())
         {
-        case clang::BuiltinType::Kind::Bool:
-            if (options.useByteBool)
-                return qualifier + "uint8_t";
-            else 
-                return qualifier + "bool";
-        case clang::BuiltinType::Kind::UChar:
-        case clang::BuiltinType::Kind::Char_U:
-            return qualifier + "uint8_t";
-        case clang::BuiltinType::Kind::SChar:
-        case clang::BuiltinType::Kind::Char_S:
-            return qualifier + "int8_t";
-        case clang::BuiltinType::Kind::UShort:
-            return qualifier + "u" + ctx.shortType;
-        case clang::BuiltinType::Kind::Short:
-            return qualifier + ctx.shortType;
-        case clang::BuiltinType::Kind::Char16:
-            return qualifier + "int16_t";
-        case clang::BuiltinType::Kind::UInt:
-            return qualifier + "u" + ctx.intType;
-        case clang::BuiltinType::Kind::Int:
-            return qualifier + ctx.intType;
-        case clang::BuiltinType::Kind::Char32:
-            return qualifier + "int32_t";
-        case clang::BuiltinType::Kind::ULong:
-            return qualifier + "u" + ctx.longType;
-        case clang::BuiltinType::Kind::Long:
-            return qualifier + ctx.longType;
-        case clang::BuiltinType::Kind::WChar_S:
-            return qualifier + ctx.wcharType;
-        case clang::BuiltinType::Kind::WChar_U:
-            return qualifier + "u" + ctx.wcharType;
-        case clang::BuiltinType::Kind::Float16:
-            return qualifier + "half";
-        case clang::BuiltinType::Kind::Float:
-            return qualifier + "float";
-        case clang::BuiltinType::Kind::Double:
-            return qualifier + "double";
-        default:
-            assert(false);
-        }
-    }
-    assert(false);
-}
-
-void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& variableName = "")
-{
-    std::optional<std::string> name = maybeGetName(decl);
-
-    std::vector<std::string> names;
-    std::vector<std::string> values;
-    for (clang::EnumConstantDecl* enumerator: decl->enumerators())
-    {
-        std::string name = enumerator->getName().str();
-        // Filter cases that are "unwanted" in the bindings.
-        bool matched = false;
-        for (auto& expr : options.removeEnumCases)
-        {
-            if (std::regex_match(name, expr))
-                matched = true;
-        }
-        if (matched)
-            continue;
-
-        llvm::SmallVector<char> valueString;
-        enumerator->getInitVal().toString(valueString);
-
-        names.push_back(name);
-        values.push_back(std::string(valueString.data(), valueString.size()));
-    }
-
-    // Rewrite enum case names as requested by options.
-    if (names.size() != 0)
-    {
-        // Find longest common prefix to all enum cases
-        std::string prefix = names[0];
-        for (size_t i = 1; i < names.size(); ++i)
-        {
-            const std::string& name = names[i];
-            size_t j = 0;
-            for (; j < std::min(prefix.size(), name.size()); ++j)
+            file = fopen(outputPath.c_str(), "w");
+            if (!file)
             {
-                if (name[j] != prefix[j])
-                    break;
-            }
-            prefix = prefix.substr(0, j);
-        }
-
-        // Find longest applicable prefix removal rule 
-        std::pair<size_t, size_t> longest_match = {0, 0};
-        for (auto& expr : options.removeCommonPrefixes)
-        {
-            std::smatch match;
-            if (std::regex_search(prefix, match, expr))
-            {
-                if (longest_match.second < match[0].length())
-                {
-                    size_t begin = match[0].first - prefix.begin();
-                    size_t end = match[0].second - prefix.begin();
-                    longest_match = {begin, end-begin};
-                }
-            }
-        }
-
-        if (longest_match.second != 0)
-        {
-            // Rewrite entries without the matched part
-            for (std::string& name : names)
-            {
-                // Would remove this case entirely; hence, can't apply this prefix
-                // removal.
-                if (longest_match.second == name.length())
-                    continue;
-
-                std::string newName = name.substr(0, longest_match.first) +
-                    name.substr(longest_match.first + longest_match.second);
-
-                if (isdigit(newName[0]))
-                {
-                    if (!options.enumFallbackPrefix.empty())
-                        newName = options.enumFallbackPrefix + newName;
-                    else
-                    {
-                        // Can't represent this enum correctly because it begins
-                        // with a number and there's no prefix for us to use.
-                        newName = name;
-                    }
-                }
-                name = newName;
+                fprintf(stderr, "Cannot open %s for writing\n", outputPath.c_str());
+                exit(1);
             }
         }
     }
 
-    std::string underlyingType = typeStr(ctx, decl->getIntegerType());
-    if (name)
+    ~BindingContext()
     {
-        if (isUnscopedEnum(*name))
-            ctx.output("[UnscopedEnum]");
-        ctx.output("public enum %s: %s {", name->c_str(), underlyingType.c_str());
-        ctx.indentLevel++;
-
-        for (size_t i = 0; i < names.size(); ++i)
-            ctx.output("%s = %s,", names[i].c_str(), values[i].c_str());
-
-        ctx.indentLevel--;
-        if (variableName.empty())
-            ctx.output("};");
-        else
-            ctx.output("} %s;", variableName.c_str());
+        if (file != stdout)
+        {
+            fclose(file);
+        }
     }
-    else
+
+    std::string getAnonymousName()
     {
-        // Completely anonymous enum, so we might as well pretend that the type
-        // doesn't exist and this is just a list of global constants.
-        for (size_t i = 0; i < names.size(); ++i)
-            ctx.output("public static const %s %s = %s;", underlyingType.c_str(), names[i].c_str(), values[i].c_str());
-        if (!variableName.empty())
-            ctx.output("public %s %s;", underlyingType.c_str(), variableName.c_str());
+        return "_anonymous" + std::to_string(nameCounter++);
     }
-}
 
-void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
-{
-    switch(decl->getKind())
+    void output(const char* format, ...)
     {
-    case clang::Decl::Kind::Enum:
-        dumpEnum(ctx, clang::cast<clang::EnumDecl>(decl));
-        break;
-    default:
-        //printf("Unknown decl type\n");
-        break;
+        for (int i = 0; i < indentLevel; ++i)
+            fprintf(file, "    ");
+        va_list args;
+        va_start(args, format);
+        vfprintf(file, format, args);
+        va_end(args);
+        fprintf(file, "\n");
     }
-}
+
+    void pushScope()
+    {
+        definedTypes.push_back({});
+        structForwardDeclarations.push_back({});
+    }
+
+    void addTypeDefinition(const std::string& name)
+    {
+        definedTypes.back().insert(name);
+    }
+
+    bool typeDeclarationExists(const std::string& name)
+    {
+        return definedTypes.back().count(name) != 0 ||
+            structForwardDeclarations.back().count(name) != 0;
+    }
+
+    void addStructForwardDeclare(const std::string& name)
+    {
+        structForwardDeclarations.back().insert(name);
+    }
+
+    void popScope()
+    {
+        auto& decls = definedTypes.back();
+        auto& structFwdDecls = structForwardDeclarations.back();
+
+        // Emit forward declarations for all types that never got a definition.
+        for (const std::string& name: structFwdDecls)
+        {
+            if (decls.count(name) == 0)
+                output("public struct %s;", name.c_str());
+        }
+
+        structForwardDeclarations.pop_back();
+        definedTypes.pop_back();
+    }
+
+    bool scopeIsGlobal()
+    {
+        // TODO: Kinda ugly to tie this to indentation, but reliable for now.
+        return indentLevel == 0;
+    }
+
+    void emitPadding(size_t bytes)
+    {
+        if (bytes != 0)
+            output("private uint8_t __pad%d[%d];", nameCounter++, bytes);
+    }
+};
+
+void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel);
 
 class SlangBindgen : public clang::ASTConsumer
 {
@@ -482,7 +341,7 @@ public:
         ){
             llvm::SmallString<100> text;
             info.FormatDiagnostic(text);
-            fprintf(stderr, "%s\n", text.c_str());
+            fprintf(stderr, "// Error: %s\n", text.c_str());
         }
     }
 };
@@ -539,7 +398,7 @@ struct ClangSession
         // include directories based on that :( it doesn't mean that this
         // program would actually depend on the presence of the Clang executable
         // itself.
-        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c"}));
+        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I."}));
         const auto &jobs = comp->getJobs();
         assert(jobs.size() == 1);
         // These args should contain correct system include directories as well.
@@ -650,7 +509,407 @@ struct ClangSession
             exit(1);
         }
     }
+
+    clang::ASTContext& getASTContext()
+    {
+        return clang->getASTContext();
+    }
 };
+
+bool isUnscopedEnum(const std::string& enumName)
+{
+    for (auto& expr: options.unscopedEnums)
+    {
+        if (std::regex_match(enumName, expr))
+            return true;
+    }
+    return false;
+}
+
+std::optional<std::string> maybeGetName(clang::TagDecl* decl)
+{
+    clang::DeclarationName name = decl->getDeclName();
+    if (name)
+        return name.getAsString();
+
+    clang::TypedefNameDecl* typedefName = decl->getTypedefNameForAnonDecl();
+    if (typedefName)
+        return typedefName->getNameAsString();
+
+    return {};
+}
+
+std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)
+{
+    const clang::Type& type = *qualType.getTypePtr();
+    std::string qualifier;
+    if (!omitQualifier)
+    {
+        if (qualType.isConstQualified())
+            qualifier += "const ";
+    }
+
+    if (type.isBuiltinType())
+    {
+        const clang::BuiltinType *builtin = type.getAs<clang::BuiltinType>();
+        switch (builtin->getKind())
+        {
+        case clang::BuiltinType::Kind::Bool:
+            if (options.useByteBool)
+                return qualifier + "uint8_t";
+            else 
+                return qualifier + "bool";
+        case clang::BuiltinType::Kind::UChar:
+        case clang::BuiltinType::Kind::Char_U:
+            return qualifier + "uint8_t";
+        case clang::BuiltinType::Kind::SChar:
+        case clang::BuiltinType::Kind::Char_S:
+            return qualifier + "int8_t";
+        case clang::BuiltinType::Kind::UShort:
+            return qualifier + "u" + ctx.shortType;
+        case clang::BuiltinType::Kind::Short:
+            return qualifier + ctx.shortType;
+        case clang::BuiltinType::Kind::Char16:
+            return qualifier + "int16_t";
+        case clang::BuiltinType::Kind::UInt:
+            return qualifier + "u" + ctx.intType;
+        case clang::BuiltinType::Kind::Int:
+            return qualifier + ctx.intType;
+        case clang::BuiltinType::Kind::Char32:
+            return qualifier + "int32_t";
+        case clang::BuiltinType::Kind::ULong:
+            return qualifier + "u" + ctx.longType;
+        case clang::BuiltinType::Kind::Long:
+            return qualifier + ctx.longType;
+        case clang::BuiltinType::Kind::WChar_S:
+            return qualifier + ctx.wcharType;
+        case clang::BuiltinType::Kind::WChar_U:
+            return qualifier + "u" + ctx.wcharType;
+        case clang::BuiltinType::Kind::Float16:
+            return qualifier + "half";
+        case clang::BuiltinType::Kind::Float:
+            return qualifier + "float";
+        case clang::BuiltinType::Kind::Double:
+            return qualifier + "double";
+        default:
+            assert(false);
+        }
+    }
+    else if(type.isPointerType())
+    {
+        const clang::PointerType* ptr = type.getAs<clang::PointerType>();
+        // Pointer const qualifiers don't work in Slang, so we omit those.
+        return "Ptr<"+typeStr(ctx, ptr->getPointeeType(), true)+">";
+    }
+    else if(type.isConstantArrayType())
+    {
+        const clang::ArrayType* arr = type.getAsArrayTypeUnsafe();
+        const clang::ConstantArrayType* constArr = clang::cast<clang::ConstantArrayType>(arr);
+        return typeStr(ctx, arr->getElementType())+"["+std::to_string(constArr->getLimitedSize())+"]";
+    }
+    else if(type.isRecordType() || type.isEnumeralType())
+    {
+        // This relies on us never changing the names of types from C. I hope
+        // we never have to do that.
+        clang::TagDecl* decl = type.getAsTagDecl();
+        return qualifier + decl->getName().str();
+    }
+    assert(false);
+}
+
+void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& variableName = "")
+{
+    std::optional<std::string> name = maybeGetName(decl);
+
+    std::vector<std::string> names;
+    std::vector<std::string> values;
+    for (clang::EnumConstantDecl* enumerator: decl->enumerators())
+    {
+        std::string name = enumerator->getName().str();
+        // Filter cases that are "unwanted" in the bindings.
+        bool matched = false;
+        for (auto& expr : options.removeEnumCases)
+        {
+            if (std::regex_match(name, expr))
+                matched = true;
+        }
+        if (matched)
+            continue;
+
+        llvm::SmallVector<char> valueString;
+        enumerator->getInitVal().toString(valueString);
+
+        names.push_back(name);
+        values.push_back(std::string(valueString.data(), valueString.size()));
+    }
+
+    // Rewrite enum case names as requested by options.
+    if (names.size() != 0)
+    {
+        // Find longest common prefix to all enum cases
+        std::string prefix = names[0];
+        for (size_t i = 1; i < names.size(); ++i)
+        {
+            const std::string& name = names[i];
+            size_t j = 0;
+            for (; j < std::min(prefix.size(), name.size()); ++j)
+            {
+                if (name[j] != prefix[j])
+                    break;
+            }
+            prefix = prefix.substr(0, j);
+        }
+
+        // Find longest applicable prefix removal rule 
+        std::pair<size_t, size_t> longest_match = {0, 0};
+        for (auto& expr : options.removeCommonPrefixes)
+        {
+            std::smatch match;
+            if (std::regex_search(prefix, match, expr))
+            {
+                if (longest_match.second < match[0].length())
+                {
+                    size_t begin = match[0].first - prefix.begin();
+                    size_t end = match[0].second - prefix.begin();
+                    longest_match = {begin, end-begin};
+                }
+            }
+        }
+
+        if (longest_match.second != 0)
+        {
+            // Rewrite entries without the matched part
+            for (std::string& name : names)
+            {
+                // Would remove this case entirely; hence, can't apply this prefix
+                // removal.
+                if (longest_match.second == name.length())
+                    continue;
+
+                std::string newName = name.substr(0, longest_match.first) +
+                    name.substr(longest_match.first + longest_match.second);
+
+                if (isdigit(newName[0]))
+                {
+                    if (!options.enumFallbackPrefix.empty())
+                        newName = options.enumFallbackPrefix + newName;
+                    else
+                    {
+                        // Can't represent this enum correctly because it begins
+                        // with a number and there's no prefix for us to use.
+                        newName = name;
+                    }
+                }
+                name = newName;
+            }
+        }
+    }
+
+    std::string underlyingType = typeStr(ctx, decl->getIntegerType());
+    if (name)
+    {
+        // Normal named enum.
+        if (isUnscopedEnum(*name))
+            ctx.output("[UnscopedEnum]");
+        ctx.output("public enum %s: %s {", name->c_str(), underlyingType.c_str());
+        ctx.indentLevel++;
+
+        for (size_t i = 0; i < names.size(); ++i)
+            ctx.output("%s = %s,", names[i].c_str(), values[i].c_str());
+
+        ctx.indentLevel--;
+        if (variableName.empty())
+            ctx.output("};");
+        else
+            ctx.output("} %s;", variableName.c_str());
+    }
+    else
+    {
+        // Completely anonymous enum, so we might as well pretend that the type
+        // doesn't exist and this is just a list of global constants. These
+        // cannot be scoped because there is no name to scope them with.
+        for (size_t i = 0; i < names.size(); ++i)
+            ctx.output("public static const %s %s = %s;", underlyingType.c_str(), names[i].c_str(), values[i].c_str());
+        if (!variableName.empty())
+            ctx.output("public %s %s;", underlyingType.c_str(), variableName.c_str());
+    }
+}
+
+void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offset)
+{
+    auto& astCtx = ctx.session->getASTContext();
+
+    clang::QualType qualType = field->getType();
+    size_t size = astCtx.getTypeSizeInChars(qualType).getQuantity();
+    size_t alignment = astCtx.getTypeAlignInChars(qualType).getQuantity();
+    size_t alignedOffset = roundToAlignment(offset, alignment);
+
+    if (field->isAnonymousStructOrUnion())
+    {
+        const clang::Type& type = *qualType.getTypePtr();
+
+        ctx.pushScope();
+
+        // Gotta align this one manually, because Slang doesn't know of the
+        // struct boundary here (because we erased it)
+        size_t leadingPadding = alignedOffset-offset;
+        ctx.emitPadding(leadingPadding);
+        offset += leadingPadding;
+
+        size_t initialOffset = offset;
+
+        if (type.isStructureType())
+        {
+            clang::RecordDecl* decl = type.getAsRecordDecl();
+            for (clang::FieldDecl* field: decl->fields())
+                dumpStructField(ctx, field, offset);
+        }
+        else if (type.isUnionType())
+        {
+            // TODO anonymous unions in structs
+            assert(false);
+        }
+
+        size_t emittedSize = offset - initialOffset;
+        size_t trailingPadding = size - emittedSize;
+        ctx.emitPadding(trailingPadding);
+        offset += trailingPadding;
+        ctx.popScope();
+    }
+    else
+    {
+        offset += alignedOffset - offset;
+
+        clang::QualType qualType = field->getType();
+        std::string name = field->getName().str();
+        std::string type = typeStr(ctx, qualType);
+
+        if (field->isBitField())
+        {
+            ctx.output("public %s %s : %u;", type.c_str(), name.c_str(), field->getBitWidthValue());
+        }
+        else
+        {
+            ctx.output("public %s %s;", type.c_str(), name.c_str());
+        }
+
+        offset += size;
+    }
+}
+
+void dumpStruct(
+    BindingContext& ctx,
+    clang::RecordDecl* decl,
+    const std::string& variableName = "",
+    const std::string& fallbackName = "")
+{
+    std::optional<std::string> maybeName = maybeGetName(decl);
+    if (!maybeName.has_value() && !fallbackName.empty())
+        maybeName = fallbackName;
+
+    if (variableName.empty() && !maybeName.has_value())
+    {
+        // No variable name and no typename - not allowed in Slang. Nested
+        // anonymous structs are handled in dumpStructField, though.
+        return;
+    }
+
+    if (!decl->isCompleteDefinition())
+    {
+        // Forward declaration, make a note so that we can emit all forward
+        // declarations at the end. Slang doesn't need forward declarations
+        // unless the type is opaque.
+        if (maybeName.has_value())
+            ctx.addStructForwardDeclare(*maybeName);
+        return;
+    }
+
+    if (maybeName.has_value())
+    {
+        ctx.output("public struct %s {", maybeName->c_str());
+        ctx.addTypeDefinition(*maybeName);
+    }
+    else
+    {
+        ctx.output("public struct {");
+    }
+    ctx.indentLevel++;
+    ctx.pushScope();
+
+    size_t offset = 0;
+    for (clang::Decl* decl: decl->decls())
+    {
+        if (
+            decl->getKind() != clang::Decl::Kind::Field &&
+            decl->getKind() != clang::Decl::Kind::IndirectField
+        ) dumpDecl(ctx, decl, false);
+    }
+
+    for (clang::FieldDecl* field: decl->fields())
+    {
+        dumpStructField(ctx, field, offset);
+    }
+
+    ctx.popScope();
+    ctx.indentLevel--;
+    if (!variableName.empty())
+        ctx.output("} %s;", variableName.c_str());
+    else
+        ctx.output("};");
+}
+
+void dumpUnion(BindingContext& ctx, clang::RecordDecl* decl)
+{
+    // TODO
+}
+
+void dumpRecord(BindingContext& ctx, clang::RecordDecl* decl)
+{
+    switch(decl->getTagKind())
+    {
+    case clang::TagTypeKind::Class:
+    case clang::TagTypeKind::Struct:
+        dumpStruct(ctx, decl);
+        break;
+    case clang::TagTypeKind::Union:
+        dumpUnion(ctx, decl);
+        break;
+    default:
+        assert(false);
+        break;
+    }
+}
+
+void dumpTypedef(BindingContext& ctx, clang::TypedefDecl* decl)
+{
+    std::string name = decl->getName().str();
+    if (ctx.typeDeclarationExists(name))
+        return;
+    std::string underlyingType = typeStr(ctx, decl->getUnderlyingType(), true);
+    ctx.output("public typealias %s = %s;", name.c_str(), underlyingType.c_str());
+}
+
+void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
+{
+    switch(decl->getKind())
+    {
+    case clang::Decl::Kind::Enum:
+        dumpEnum(ctx, clang::cast<clang::EnumDecl>(decl));
+        break;
+    case clang::Decl::Kind::Record:
+        dumpRecord(ctx, clang::cast<clang::RecordDecl>(decl));
+        break;
+    case clang::Decl::Kind::Typedef:
+        dumpTypedef(ctx, clang::cast<clang::TypedefDecl>(decl));
+        break;
+    default:
+        //if (!topLevel)
+        //    assert(false);
+        //printf("Unknown decl type\n");
+        break;
+    }
+}
+
 
 int main(int argc, const char** argv)
 {
@@ -679,6 +938,7 @@ int main(int argc, const char** argv)
     }
 
     ClangSession session;
+    ctx.session = &session;
 
     session.determineIntegerSizes(ctx);
 
@@ -686,11 +946,13 @@ int main(int argc, const char** argv)
     for (const std::string& ns: options.cHeaders)
         inputSource += "#include \""+ns+"\"\n";
 
+    ctx.pushScope();
+
     session.parseSource(ctx, inputSource);
 
-    // TODO: Actual contents lol
-    // Create a string that just includes all of the inputs 
-    // Feed that to Clang to get AST
+    ctx.popScope();
+
+    // TODO: 
     // Detect functions signatures with struct value types
     // Compile wrapper with Clang, emit as LLVM IR, dig out the func
 
