@@ -196,14 +196,17 @@ size_t roundToAlignment(size_t size, size_t align)
 }
 
 struct BindingContext;
-void generateFunctionWrapper(
-    BindingContext& ctx,
-    const std::string& preamble,
-    const std::string& slangPrototype,
-    const std::string& cAdapter,
-    const std::string& functionName,
-    int argCount
-);
+
+struct FunctionWrapperInfo
+{
+    std::string slangPrototype;
+    std::string cAdapter;
+    std::string functionName;
+    std::string adapterFunctionName;
+    int argCount;
+};
+
+void generateFunctionWrapper(BindingContext& ctx, const std::string& preamble, const FunctionWrapperInfo& info);
 
 struct ClangSession;
 struct BindingContext
@@ -226,13 +229,6 @@ struct BindingContext
     std::vector<std::set<std::string>> definedTypes;
     std::vector<std::set<std::string>> structForwardDeclarations;
 
-    struct FunctionWrapperInfo
-    {
-        std::string slangPrototype;
-        std::string cAdapter;
-        std::string functionName;
-        int argCount;
-    };
     std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
 
     BindingContext(const std::string& outputPath)
@@ -326,7 +322,7 @@ struct BindingContext
     {
         for (FunctionWrapperInfo& wrapper: pendingFunctionWrappers)
         {
-            generateFunctionWrapper(*this, preamble, wrapper.slangPrototype, wrapper.cAdapter, wrapper.functionName, wrapper.argCount);
+            generateFunctionWrapper(*this, preamble, wrapper);
         }
     }
 };
@@ -552,15 +548,12 @@ struct ClangSession
 void generateFunctionWrapper(
     BindingContext& ctx,
     const std::string& preamble,
-    const std::string& slangPrototype,
-    const std::string& cAdapter,
-    const std::string& functionName,
-    int argCount
+    const FunctionWrapperInfo& info
 ){
-    std::string source = preamble + "\n" + cAdapter;
+    std::string source = preamble + "\n" + info.cAdapter;
 
     clang::InputKind inputKind(clang::Language::C, clang::InputKind::Format::Source);
-    clang::FrontendInputFile inputFile(llvm::MemoryBufferRef(source, "<input>"), inputKind);
+    clang::FrontendInputFile inputFile(llvm::MemoryBufferRef(source, "<inline-bindgen>"), inputKind);
 
     auto& session = *ctx.session;
     auto& invocation = session.clang->getInvocation();
@@ -569,7 +562,7 @@ void generateFunctionWrapper(
     frontendOpts.Inputs.push_back(inputFile);
 
     auto& codegenOpts = invocation.getCodeGenOpts();
-    codegenOpts.OptimizationLevel = 3;
+    codegenOpts.OptimizationLevel = 1;
 
     std::unique_ptr<llvm::LLVMContext> llvmContext = std::make_unique<llvm::LLVMContext>();
     std::unique_ptr<clang::CodeGenAction> codeGenAction(new clang::EmitLLVMOnlyAction(llvmContext.get()));
@@ -579,21 +572,23 @@ void generateFunctionWrapper(
 
     std::unique_ptr<llvm::Module> mod = codeGenAction->takeModule();
     llvm::StripDebugInfo(*mod);
-    llvm::Function* adapter = llvm::cast<llvm::Function>(mod->getNamedValue(FUNCTION_ADAPTER_NAME));
 
     std::string ir;
     llvm::raw_string_ostream irStream(ir);
-    //adapter->getEntryBlock().print(irStream);
     mod->print(irStream, nullptr);
 
-    // TODO: This doesn't actually work yet, because:
-    // * Name needs to be different and unique for each wrapper
-    // * The wrapping function needs to have inline IR for calling this wrapper.
-    ctx.output("%s {", slangPrototype.c_str());
+    ctx.output("%s {", info.slangPrototype.c_str());
     ctx.indentLevel++;
     ctx.output("__requirePrelude(R\"(%s)\")", ir.c_str());
-    //ctx.output("%s", ir.c_str());
-    ctx.output(")\";");
+    std::string callInst = "call void @" + info.adapterFunctionName + "(";
+    for (int i = 0; i < info.argCount; ++i)
+    {
+        if (i != 0)
+            callInst += ", ";
+        callInst += "$"+std::to_string(i);
+    }
+    callInst += ")";
+    ctx.output("__intrinsic_asm \"%s\";", callInst.c_str());
     ctx.indentLevel--;
     ctx.output("}");
 }
@@ -1001,8 +996,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
 
     ctx.declaredFunctions.insert(name);
 
-    bool paramsNeedCallWrapper = false;
-    bool returnNeedsCallWrapper = false;
+    bool needsCallWrapper = false;
 
     std::string paramString;
     bool first = true;
@@ -1015,7 +1009,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
 
         // Passing structs by value... uh oh.
         if (type.isStructureType())
-            paramsNeedCallWrapper = true;
+            needsCallWrapper = true;
 
         paramString += typeStr(ctx, qualType);
         paramString += " ";
@@ -1026,11 +1020,11 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
     clang::QualType qualRetType = decl->getReturnType();
     const clang::Type& retType = *qualRetType.getTypePtr();
     if (retType.isStructureType() || retType.isConstantArrayType())
-        returnNeedsCallWrapper = true;
+        needsCallWrapper = true;
 
     std::string returnString = typeStr(ctx, qualRetType);
 
-    if (!paramsNeedCallWrapper && !returnNeedsCallWrapper)
+    if (!needsCallWrapper)
     {
         // Simple case, our calling convention matches C
         ctx.output("public __extern_cpp %s %s(%s);", returnString.c_str(), name.c_str(), paramString.c_str());
@@ -1048,17 +1042,11 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
         std::string slangPrototype = "[ForceInline]\ninternal ";
         std::string cAdapterCall = name + "(";
         std::string cAdapter;
-        if (returnNeedsCallWrapper)
-        {
-            cAdapter = "void";
-            slangPrototype += "void";
-        }
-        else
-        {
-            cAdapter = qualRetType.getAsString();
-            slangPrototype += returnString;
-        }
-        cAdapter += " " FUNCTION_ADAPTER_NAME "(";
+        cAdapter = "void";
+        slangPrototype += "void";
+
+        std::string cAdapterName = FUNCTION_ADAPTER_NAME + std::to_string(ctx.nameCounter++);
+        cAdapter += " " + cAdapterName + "(";
         slangPrototype += " " + adapterName + "(";
         int paramIndex = 0;
         for (clang::ParmVarDecl* param: decl->parameters())
@@ -1092,7 +1080,8 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
 
             paramIndex++;
         }
-        if (returnNeedsCallWrapper)
+
+        if (!retType.isVoidType())
         {
             if(paramIndex != 0)
             {
@@ -1108,27 +1097,19 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
             cAdapterCall = "*" + cTagName+" = " + cAdapterCall;
             paramIndex++;
         }
-        else if(!retType.isVoidType())
-        {
-            cAdapterCall = "return " + cAdapterCall;
-        }
         cAdapter += "){\n    "+cAdapterCall+");\n}\n";
         call += ")";
         slangPrototype += ")";
 
-        if (returnNeedsCallWrapper)
+        if(retType.isVoidType())
+        {
+            ctx.output("%s;", call.c_str());
+        }
+        else
         {
             ctx.output("%s returnval;", returnString.c_str());
             ctx.output("%s;", call.c_str());
             ctx.output("return returnval;");
-        }
-        else if(!retType.isVoidType())
-        {
-            ctx.output("return %s;", call.c_str());
-        }
-        else
-        {
-            ctx.output("%s;", call.c_str());
         }
         ctx.indentLevel--;
         ctx.output("}");
@@ -1137,6 +1118,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
             slangPrototype,
             cAdapter,
             name,
+            cAdapterName,
             paramIndex
         });
     }
