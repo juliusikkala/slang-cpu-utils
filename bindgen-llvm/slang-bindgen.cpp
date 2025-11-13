@@ -3,6 +3,8 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/Instructions.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/CodeGen/CodeGenAction.h"
 #include "clang/Driver/Driver.h"
@@ -18,6 +20,9 @@
 #include <cstring>
 #include <cstdarg>
 #include <cassert>
+
+#define FUNCTION_ADAPTER_NAME "_BINDGEN_FUNC_ADAPTER"
+#define FUNCTION_ADAPTER_ARG_NAME "_BINDGEN_ARG_"
 
 static struct {
     std::string inNamespace;
@@ -190,6 +195,16 @@ size_t roundToAlignment(size_t size, size_t align)
     return (size+align-1)/align*align;
 }
 
+struct BindingContext;
+void generateFunctionWrapper(
+    BindingContext& ctx,
+    const std::string& preamble,
+    const std::string& slangPrototype,
+    const std::string& cAdapter,
+    const std::string& functionName,
+    int argCount
+);
+
 struct ClangSession;
 struct BindingContext
 {
@@ -207,8 +222,18 @@ struct BindingContext
 
     int scopeDepth = 0;
 
+    std::set<std::string> declaredFunctions;
     std::vector<std::set<std::string>> definedTypes;
     std::vector<std::set<std::string>> structForwardDeclarations;
+
+    struct FunctionWrapperInfo
+    {
+        std::string slangPrototype;
+        std::string cAdapter;
+        std::string functionName;
+        int argCount;
+    };
+    std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
 
     BindingContext(const std::string& outputPath)
     {
@@ -295,6 +320,14 @@ struct BindingContext
     {
         if (bytes != 0)
             output("private uint8_t __pad%d[%d];", nameCounter++, bytes);
+    }
+
+    void generateFunctionWrappers(const std::string& preamble)
+    {
+        for (FunctionWrapperInfo& wrapper: pendingFunctionWrappers)
+        {
+            generateFunctionWrapper(*this, preamble, wrapper.slangPrototype, wrapper.cAdapter, wrapper.functionName, wrapper.argCount);
+        }
     }
 };
 
@@ -398,7 +431,7 @@ struct ClangSession
         // include directories based on that :( it doesn't mean that this
         // program would actually depend on the presence of the Clang executable
         // itself.
-        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I."}));
+        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I.", "-g0"}));
         const auto &jobs = comp->getJobs();
         assert(jobs.size() == 1);
         // These args should contain correct system include directories as well.
@@ -516,6 +549,55 @@ struct ClangSession
     }
 };
 
+void generateFunctionWrapper(
+    BindingContext& ctx,
+    const std::string& preamble,
+    const std::string& slangPrototype,
+    const std::string& cAdapter,
+    const std::string& functionName,
+    int argCount
+){
+    std::string source = preamble + "\n" + cAdapter;
+
+    clang::InputKind inputKind(clang::Language::C, clang::InputKind::Format::Source);
+    clang::FrontendInputFile inputFile(llvm::MemoryBufferRef(source, "<input>"), inputKind);
+
+    auto& session = *ctx.session;
+    auto& invocation = session.clang->getInvocation();
+    auto& frontendOpts = invocation.getFrontendOpts();
+    frontendOpts.Inputs.clear();
+    frontendOpts.Inputs.push_back(inputFile);
+
+    auto& codegenOpts = invocation.getCodeGenOpts();
+    codegenOpts.OptimizationLevel = 3;
+
+    std::unique_ptr<llvm::LLVMContext> llvmContext = std::make_unique<llvm::LLVMContext>();
+    std::unique_ptr<clang::CodeGenAction> codeGenAction(new clang::EmitLLVMOnlyAction(llvmContext.get()));
+
+    if (!session.clang->ExecuteAction(*codeGenAction))
+        exit(1);
+
+    std::unique_ptr<llvm::Module> mod = codeGenAction->takeModule();
+    llvm::StripDebugInfo(*mod);
+    llvm::Function* adapter = llvm::cast<llvm::Function>(mod->getNamedValue(FUNCTION_ADAPTER_NAME));
+
+    std::string ir;
+    llvm::raw_string_ostream irStream(ir);
+    //adapter->getEntryBlock().print(irStream);
+    mod->print(irStream, nullptr);
+
+    // TODO: This doesn't actually work yet, because:
+    // * Name needs to be different and unique for each wrapper
+    // * The wrapping function needs to have inline IR for calling this wrapper.
+    ctx.output("%s {", slangPrototype.c_str());
+    ctx.indentLevel++;
+    ctx.output("__requirePrelude(R\"(%s)\")", ir.c_str());
+    //ctx.output("%s", ir.c_str());
+    ctx.output(")\";");
+    ctx.indentLevel--;
+    ctx.output("}");
+}
+
 bool isUnscopedEnum(const std::string& enumName)
 {
     for (auto& expr: options.unscopedEnums)
@@ -554,6 +636,8 @@ std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQual
         const clang::BuiltinType *builtin = type.getAs<clang::BuiltinType>();
         switch (builtin->getKind())
         {
+        case clang::BuiltinType::Kind::Void:
+            return qualifier + "void";
         case clang::BuiltinType::Kind::Bool:
             if (options.useByteBool)
                 return qualifier + "uint8_t";
@@ -598,14 +682,27 @@ std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQual
     else if(type.isPointerType())
     {
         const clang::PointerType* ptr = type.getAs<clang::PointerType>();
+        clang::QualType pointeeType = ptr->getPointeeType();
+
+        if (pointeeType.isConstQualified() && pointeeType->isCharType() && pointeeType->isSignedIntegerType())
+        {
+            // Special case: turn const char* into NativeString
+            return "NativeString";
+        }
         // Pointer const qualifiers don't work in Slang, so we omit those.
-        return "Ptr<"+typeStr(ctx, ptr->getPointeeType(), true)+">";
+        return "Ptr<"+typeStr(ctx, pointeeType, true)+">";
     }
     else if(type.isConstantArrayType())
     {
         const clang::ArrayType* arr = type.getAsArrayTypeUnsafe();
         const clang::ConstantArrayType* constArr = clang::cast<clang::ConstantArrayType>(arr);
         return typeStr(ctx, arr->getElementType())+"["+std::to_string(constArr->getLimitedSize())+"]";
+    }
+    else if(type.isFunctionProtoType())
+    {
+        // Function pointers don't exist in Slang (at least yet), so we just
+        // turn those into void pointers here.
+        return "void";
     }
     else if(type.isRecordType() || type.isEnumeralType())
     {
@@ -889,6 +986,162 @@ void dumpTypedef(BindingContext& ctx, clang::TypedefDecl* decl)
     ctx.output("public typealias %s = %s;", name.c_str(), underlyingType.c_str());
 }
 
+void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
+{
+    std::string name = decl->getName().str();
+    if (ctx.declaredFunctions.count(name))
+        return;
+
+    if (decl->isVariadic())
+    {
+        // Sorry, we have literally zero options to emit this in Slang right
+        // now :/
+        return;
+    }
+
+    ctx.declaredFunctions.insert(name);
+
+    bool paramsNeedCallWrapper = false;
+    bool returnNeedsCallWrapper = false;
+
+    std::string paramString;
+    bool first = true;
+    for (clang::ParmVarDecl* param: decl->parameters())
+    {
+        if (!first)
+            paramString += ", ";
+        clang::QualType qualType = param->getType();
+        const clang::Type& type = *qualType.getTypePtr();
+
+        // Passing structs by value... uh oh.
+        if (type.isStructureType())
+            paramsNeedCallWrapper = true;
+
+        paramString += typeStr(ctx, qualType);
+        paramString += " ";
+        paramString += param->getName().str();
+        first = false;
+    }
+
+    clang::QualType qualRetType = decl->getReturnType();
+    const clang::Type& retType = *qualRetType.getTypePtr();
+    if (retType.isStructureType() || retType.isConstantArrayType())
+        returnNeedsCallWrapper = true;
+
+    std::string returnString = typeStr(ctx, qualRetType);
+
+    if (!paramsNeedCallWrapper && !returnNeedsCallWrapper)
+    {
+        // Simple case, our calling convention matches C
+        ctx.output("public __extern_cpp %s %s(%s);", returnString.c_str(), name.c_str(), paramString.c_str());
+    }
+    else
+    {
+        // Hard case, struct arguments are turned into pointers and returned
+        // structs into an extra pointer argument.
+        ctx.output("[ForceInline]");
+        ctx.output("public %s %s(%s) {", returnString.c_str(), name.c_str(), paramString.c_str());
+        ctx.indentLevel++;
+
+        std::string adapterName = "_bindgen_adapter_" + name;
+        std::string call = adapterName + "(";
+        std::string slangPrototype = "[ForceInline]\ninternal ";
+        std::string cAdapterCall = name + "(";
+        std::string cAdapter;
+        if (returnNeedsCallWrapper)
+        {
+            cAdapter = "void";
+            slangPrototype += "void";
+        }
+        else
+        {
+            cAdapter = qualRetType.getAsString();
+            slangPrototype += returnString;
+        }
+        cAdapter += " " FUNCTION_ADAPTER_NAME "(";
+        slangPrototype += " " + adapterName + "(";
+        int paramIndex = 0;
+        for (clang::ParmVarDecl* param: decl->parameters())
+        {
+            if (paramIndex != 0)
+            {
+                call += ", ";
+                slangPrototype += ", ";
+                cAdapter += ", ";
+                cAdapterCall += ", ";
+            }
+            clang::QualType qualType = param->getType();
+            const clang::Type& type = *qualType.getTypePtr();
+
+            std::string name = param->getName().str();
+            std::string cTagName = FUNCTION_ADAPTER_ARG_NAME + std::to_string(paramIndex);
+            if (type.isStructureType())
+            {
+                call += "&"+name;
+                slangPrototype += "Ptr<"+typeStr(ctx, qualType, true)+"> " + cTagName;
+                cAdapter += qualType.getAsString() + "* " + cTagName;
+                cAdapterCall += "*"+cTagName;
+            }
+            else
+            {
+                call += name;
+                slangPrototype += typeStr(ctx, qualType) + " " + cTagName;
+                cAdapter += qualType.getAsString() + " " + cTagName;
+                cAdapterCall += cTagName;
+            }
+
+            paramIndex++;
+        }
+        if (returnNeedsCallWrapper)
+        {
+            if(paramIndex != 0)
+            {
+                call += ", ";
+                slangPrototype += ", ";
+                cAdapter += ", ";
+            }
+
+            call += "&returnval";
+            std::string cTagName = FUNCTION_ADAPTER_ARG_NAME + std::to_string(paramIndex);
+            slangPrototype += "Ptr<"+typeStr(ctx, qualRetType, true) + "> " + cTagName;
+            cAdapter += qualRetType.getUnqualifiedType().getAsString() + "* "+cTagName;
+            cAdapterCall = "*" + cTagName+" = " + cAdapterCall;
+            paramIndex++;
+        }
+        else if(!retType.isVoidType())
+        {
+            cAdapterCall = "return " + cAdapterCall;
+        }
+        cAdapter += "){\n    "+cAdapterCall+");\n}\n";
+        call += ")";
+        slangPrototype += ")";
+
+        if (returnNeedsCallWrapper)
+        {
+            ctx.output("%s returnval;", returnString.c_str());
+            ctx.output("%s;", call.c_str());
+            ctx.output("return returnval;");
+        }
+        else if(!retType.isVoidType())
+        {
+            ctx.output("return %s;", call.c_str());
+        }
+        else
+        {
+            ctx.output("%s;", call.c_str());
+        }
+        ctx.indentLevel--;
+        ctx.output("}");
+
+        ctx.pendingFunctionWrappers.push_back({
+            slangPrototype,
+            cAdapter,
+            name,
+            paramIndex
+        });
+    }
+}
+
 void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
 {
     switch(decl->getKind())
@@ -901,6 +1154,9 @@ void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
         break;
     case clang::Decl::Kind::Typedef:
         dumpTypedef(ctx, clang::cast<clang::TypedefDecl>(decl));
+        break;
+    case clang::Decl::Kind::Function:
+        dumpFunction(ctx, clang::cast<clang::FunctionDecl>(decl));
         break;
     default:
         //if (!topLevel)
@@ -952,9 +1208,7 @@ int main(int argc, const char** argv)
 
     ctx.popScope();
 
-    // TODO: 
-    // Detect functions signatures with struct value types
-    // Compile wrapper with Clang, emit as LLVM IR, dig out the func
+    ctx.generateFunctionWrappers(inputSource);
 
     if (!options.inNamespace.empty())
     {
