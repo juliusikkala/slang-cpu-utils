@@ -20,6 +20,8 @@
 #include <cstring>
 #include <cstdarg>
 #include <cassert>
+#include <memory>
+#include <filesystem>
 
 #define FUNCTION_ADAPTER_NAME "_BINDGEN_FUNC_ADAPTER"
 #define FUNCTION_ADAPTER_ARG_NAME "_BINDGEN_ARG_"
@@ -228,6 +230,7 @@ struct BindingContext
     std::set<std::string> declaredFunctions;
     std::vector<std::set<std::string>> definedTypes;
     std::vector<std::set<std::string>> structForwardDeclarations;
+    std::vector<std::filesystem::path> allowedSources;
 
     std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
 
@@ -242,6 +245,9 @@ struct BindingContext
                 exit(1);
             }
         }
+
+        for (const std::string& s: options.cHeaders)
+            allowedSources.push_back(s);
     }
 
     ~BindingContext()
@@ -327,20 +333,24 @@ struct BindingContext
     }
 };
 
-void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel);
+class SlangMacroBindgen : public clang::PPCallbacks
+{
+public:
+    BindingContext* ctx;
+    SlangMacroBindgen(BindingContext* ctx) : ctx(ctx) {}
+
+    void MacroDefined(const clang::Token &MacroNameTok, const clang::MacroDirective *MD) override;
+};
 
 class SlangBindgen : public clang::ASTConsumer
 {
 public:
     BindingContext* ctx;
     SlangBindgen(BindingContext* ctx) : ctx(ctx) {}
+    ~SlangBindgen();
 
-    bool HandleTopLevelDecl(clang::DeclGroupRef decl)
-    {
-        for (clang::Decl* singleDecl: decl)
-            dumpDecl(*ctx, singleDecl, true);
-        return true;
-    }
+    void Initialize(clang::ASTContext &Context);
+    bool HandleTopLevelDecl(clang::DeclGroupRef decl);
 };
 
 class SlangBindgenAction : public clang::ASTFrontendAction
@@ -545,6 +555,26 @@ struct ClangSession
     }
 };
 
+bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
+{
+    auto& sourceManager = ctx.session->clang->getSourceManager();
+    std::filesystem::path path(sourceManager.getFilename(loc).str());
+
+    for (auto& allowed: ctx.allowedSources)
+    {
+        try
+        {
+            if (std::filesystem::equivalent(path, allowed))
+                return true;
+        }
+        catch(...)
+        {
+            continue;
+        }
+    }
+    return false;
+}
+
 void generateFunctionWrapper(
     BindingContext& ctx,
     const std::string& preamble,
@@ -712,6 +742,8 @@ std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQual
     }
     assert(false);
 }
+
+void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel);
 
 void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& variableName = "")
 {
@@ -1227,6 +1259,40 @@ void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
     }
 }
 
+void SlangMacroBindgen::MacroDefined(const clang::Token &MacroNameTok, const clang::MacroDirective *MD)
+{
+    if (!isLocationActive(*ctx, MacroNameTok.getLocation()) || MD->getKind() != clang::MacroDirective::MD_Define)
+        return;
+
+    std::string name = MacroNameTok.getIdentifierInfo()->getName().str();
+    const clang::MacroInfo* mi = MD->getMacroInfo();
+    // TODO make this work with a let or an inline function maybe.
+    ctx->output("public static let %s = ;", name.c_str());
+}
+
+SlangBindgen::~SlangBindgen()
+{
+    clang::Preprocessor& pp = ctx->session->clang->getPreprocessor();
+    pp.addPPCallbacks(nullptr);
+}
+
+void SlangBindgen::Initialize(clang::ASTContext&)
+{
+    clang::Preprocessor& pp = ctx->session->clang->getPreprocessor();
+    std::unique_ptr<clang::PPCallbacks> cb(new SlangMacroBindgen(ctx));
+    pp.addPPCallbacks(std::move(cb));
+}
+
+bool SlangBindgen::HandleTopLevelDecl(clang::DeclGroupRef decl)
+{
+    for (clang::Decl* singleDecl: decl)
+    {
+        if (!isLocationActive(*ctx, singleDecl->getLocation()))
+            continue;
+        dumpDecl(*ctx, singleDecl, true);
+    }
+    return true;
+}
 
 int main(int argc, const char** argv)
 {
