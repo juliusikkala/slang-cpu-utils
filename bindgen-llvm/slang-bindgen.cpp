@@ -660,6 +660,10 @@ std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQual
             return qualifier + "u" + ctx.longType;
         case clang::BuiltinType::Kind::Long:
             return qualifier + ctx.longType;
+        case clang::BuiltinType::Kind::ULongLong:
+            return qualifier + "uint64_t";
+        case clang::BuiltinType::Kind::LongLong:
+            return qualifier + "int64_t";
         case clang::BuiltinType::Kind::WChar_S:
             return qualifier + ctx.wcharType;
         case clang::BuiltinType::Kind::WChar_U:
@@ -1124,6 +1128,78 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
     }
 }
 
+void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
+{
+    // Only expose constant variables.
+    if (!decl->getType().isConstQualified() || !decl->hasInit())
+        return;
+
+    clang::Expr* initializer = decl->getInit();
+    clang::QualType initializerType = initializer->getType();
+    std::string initializerStr;
+
+    auto& astCtx = ctx.session->getASTContext();
+    clang::Expr::EvalResult result;
+    if (!initializer->EvaluateAsConstantExpr(result, astCtx))
+        return;
+
+    clang::PrintingPolicy policy = astCtx.getPrintingPolicy();
+    policy.ConstantsAsWritten = 1;
+    policy.PrintAsCanonical = 0;
+    policy.EntireContentsOfLargeArray = 1;
+    policy.Indentation = 4;
+
+    std::string type = typeStr(ctx, decl->getType(), true);
+
+    if (result.Val.isInt())
+    {
+        llvm::SmallString<10> text;
+        result.Val.getInt().toString(text);
+
+        initializerStr = text.str();
+
+        if(astCtx.getTypeSize(initializerType) == 64)
+            initializerStr += "l";
+        if(initializerType->isUnsignedIntegerType())
+            initializerStr += "u";
+    }
+    else if (result.Val.isFloat())
+    {
+        llvm::SmallString<10> text;
+        result.Val.getFloat().toString(text);
+
+        initializerStr = text.str();
+
+        const clang::BuiltinType *builtin = initializerType->getAs<clang::BuiltinType>();
+        auto kind = builtin->getKind();
+        if (kind == clang::BuiltinType::Kind::Float16)
+            initializerStr += "h";
+        else if(kind == clang::BuiltinType::Kind::Float)
+            initializerStr += "f";
+        else if(kind == clang::BuiltinType::Kind::Double)
+            initializerStr += "l";
+    }
+    else if (result.Val.isLValue() && type == "NativeString")
+    {
+        auto base = result.Val.getLValueBase();
+        llvm::raw_string_ostream os(initializerStr);
+
+        if (const clang::Expr* vd = base.dyn_cast<const clang::Expr*>())
+        {
+            vd->printPretty(os, nullptr, astCtx.getPrintingPolicy());
+        }
+        else return;
+    }
+    else return;
+
+    ctx.output(
+        "public static const %s %s = %s;",
+        type.c_str(),
+        std::string(decl->getName()).c_str(),
+        initializerStr.c_str()
+    );
+}
+
 void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
 {
     switch(decl->getKind())
@@ -1139,6 +1215,9 @@ void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
         break;
     case clang::Decl::Kind::Function:
         dumpFunction(ctx, clang::cast<clang::FunctionDecl>(decl));
+        break;
+    case clang::Decl::Kind::Var:
+        dumpVar(ctx, clang::cast<clang::VarDecl>(decl));
         break;
     default:
         //if (!topLevel)
