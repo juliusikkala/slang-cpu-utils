@@ -783,21 +783,21 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
         clang::TagDecl* decl = type.getAsTagDecl();
         std::string ident = decl->getName().str();
 
-        // If this type is not defined in the files we're generating the
+        // If this type is not defined in the headers we're generating the
         // bindings for, we'll need to cover it somehow else.
-        if (!isLocationVisible(ctx, decl->getLocation()))
+        bool visible = isLocationVisible(ctx, decl->getLocation());
+
+        if (!visible && type.isRecordType())
         {
-            if (type.isRecordType())
-            {
-                // Add a forward declare for structs and unions.
-                ctx.addTypeForwardDeclare(ident);
-            }
-            else if (type.isEnumeralType())
-            {
-                // Use the underlying type for enums.
-                clang::EnumDecl* enumDecl = clang::cast<clang::EnumDecl>(decl);
-                ident = getTypeStr(ctx, enumDecl->getIntegerType(), true);
-            }
+            // Add a forward declare for structs and unions.
+            ctx.addTypeForwardDeclare(ident);
+        }
+
+        if (type.isEnumeralType() && (!visible || ident.empty()))
+        {
+            // Use the underlying type for anonymous or externally defined enums.
+            clang::EnumDecl* enumDecl = clang::cast<clang::EnumDecl>(decl);
+            ident = getTypeStr(ctx, enumDecl->getIntegerType(), true);
         }
         return qualifier + ident;
     }
@@ -926,6 +926,14 @@ void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& var
     }
 }
 
+void dumpRecord(
+    BindingContext& ctx,
+    clang::RecordDecl* decl,
+    const std::string& variableName = "",
+    const std::string& fallbackName = "");
+
+void dumpUnionContents(BindingContext& ctx, clang::RecordDecl* decl);
+
 void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offset)
 {
     auto& astCtx = ctx.session->getASTContext();
@@ -949,16 +957,16 @@ void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offse
 
         size_t initialOffset = offset;
 
+        clang::RecordDecl* recordDecl = type.getAsRecordDecl();
         if (type.isStructureType())
         {
-            clang::RecordDecl* decl = type.getAsRecordDecl();
-            for (clang::FieldDecl* field: decl->fields())
+            for (clang::FieldDecl* field: recordDecl->fields())
                 dumpStructField(ctx, field, offset);
         }
         else if (type.isUnionType())
         {
-            // TODO anonymous unions in structs
-            assert(false);
+            dumpUnionContents(ctx, recordDecl);
+            offset += size;
         }
 
         size_t emittedSize = offset - initialOffset;
@@ -971,7 +979,6 @@ void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offse
     {
         offset += alignedOffset - offset;
 
-        clang::QualType qualType = field->getType();
         std::string name = field->getName().str();
         std::string type = getTypeStr(ctx, qualType);
 
@@ -981,18 +988,177 @@ void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offse
         }
         else
         {
-            ctx.output("public %s %s;", type.c_str(), name.c_str());
+            clang::RecordDecl* recordDecl = qualType->getAsRecordDecl();
+            if (recordDecl && recordDecl->isAnonymousStructOrUnion())
+            {
+                dumpRecord(ctx, recordDecl, name);
+            }
+            else
+            {
+                ctx.output("public %s %s;", type.c_str(), name.c_str());
+            }
         }
 
         offset += size;
     }
 }
 
-void dumpStruct(
+void dumpStructContents(BindingContext& ctx, clang::RecordDecl* decl)
+{
+    size_t offset = 0;
+    for (clang::FieldDecl* field: decl->fields())
+    {
+        dumpStructField(ctx, field, offset);
+    }
+}
+
+void dumpUnionImplicitMemberAccessor(
+    BindingContext& ctx,
+    clang::FieldDecl* field,
+    const std::string& adapterName,
+    const char* backingMemoryType,
+    size_t backingMemoryLength,
+    const char* backingMemoryName
+){
+    clang::QualType qualType = field->getType();
+    if (field->isAnonymousStructOrUnion())
+    {
+        clang::RecordDecl* decl = qualType->getAsRecordDecl();
+        for (clang::FieldDecl* subfield: decl->fields())
+            dumpUnionImplicitMemberAccessor(ctx, subfield, adapterName, backingMemoryType, backingMemoryLength, backingMemoryName);
+    }
+    else
+    {
+        std::string name = field->getName().str();
+        std::string type = getTypeStr(ctx, qualType);
+
+        ctx.output("public property %s %s {", type.c_str(), name.c_str());
+        ctx.indentLevel++;
+        ctx.output("get {");
+        ctx.indentLevel++;
+        ctx.output("%s tmp = reinterpret<%s>(%s);", adapterName.c_str(), adapterName.c_str(), backingMemoryName);
+        ctx.output("return tmp.value.%s;", name.c_str());
+        ctx.indentLevel--;
+        ctx.output("}");
+        ctx.output("set {");
+        ctx.indentLevel++;
+        ctx.output("%s tmp = reinterpret<%s>(%s);", adapterName.c_str(), adapterName.c_str(), backingMemoryName);
+        ctx.output("tmp.value.%s = newValue;", name.c_str());
+        ctx.output("%s = reinterpret<%s[%zu]>(tmp);", backingMemoryName, backingMemoryType, backingMemoryLength);
+        ctx.indentLevel--;
+        ctx.output("}");
+        ctx.indentLevel--;
+        ctx.output("};");
+    }
+}
+
+void dumpUnionField(
+    BindingContext& ctx,
+    clang::FieldDecl* field,
+    size_t unionSize,
+    const char* backingMemoryType,
+    size_t backingMemoryLength,
+    const char* backingMemoryName
+){
+    auto& astCtx = ctx.session->getASTContext();
+
+    clang::QualType qualType = field->getType();
+    size_t size = astCtx.getTypeSizeInChars(qualType).getQuantity();
+    size_t alignment = astCtx.getTypeAlignInChars(qualType).getQuantity();
+
+    std::string name = field->getName().str();
+    std::string type = getTypeStr(ctx, qualType);
+    if (type.empty())
+    {
+        type = "_anonymousMemberTypeBinding"+std::to_string(ctx.nameCounter++);
+        clang::RecordDecl* recordDecl = qualType->getAsRecordDecl();
+        if (recordDecl)
+        {
+            dumpRecord(ctx, recordDecl, "", type);
+        }
+    }
+
+    if (field->isAnonymousStructOrUnion())
+    {
+        // The type name should be unique.
+        std::string adapterName = "_unionBindingAdapter_" + type;
+
+        ctx.output("internal struct %s {", adapterName.c_str());
+        ctx.indentLevel++;
+        ctx.output("%s value;", type.c_str());
+        if (size < unionSize)
+            ctx.output("uint8_t pad[%zu];", unionSize - size);
+        ctx.indentLevel--;
+        ctx.output("};");
+
+        dumpUnionImplicitMemberAccessor(ctx, field, adapterName, backingMemoryType, backingMemoryLength,backingMemoryName);
+    }
+    else
+    {
+        std::string adapterName = "_unionBindingAdapter_" + name;
+
+        ctx.output("internal struct %s {", adapterName.c_str());
+        ctx.indentLevel++;
+        ctx.output("%s value;", type.c_str());
+        if (size < unionSize)
+            ctx.output("uint8_t pad[%zu];", unionSize - size);
+        ctx.indentLevel--;
+        ctx.output("};");
+
+        ctx.output("public property %s %s {", type.c_str(), name.c_str());
+        ctx.indentLevel++;
+        ctx.output("get {");
+        ctx.indentLevel++;
+        ctx.output("%s tmp = reinterpret<%s>(%s);", adapterName.c_str(), adapterName.c_str(), backingMemoryName);
+        ctx.output("return tmp.value;");
+        ctx.indentLevel--;
+        ctx.output("}");
+        ctx.output("set {");
+        ctx.indentLevel++;
+        ctx.output("%s tmp;", adapterName.c_str());
+        ctx.output("tmp.value = newValue;");
+        ctx.output("%s = reinterpret<%s[%zu]>(tmp);", backingMemoryName, backingMemoryType, backingMemoryLength);
+        ctx.indentLevel--;
+        ctx.output("}");
+        ctx.indentLevel--;
+        ctx.output("};");
+    }
+}
+
+void dumpUnionContents(BindingContext& ctx, clang::RecordDecl* decl)
+{
+    auto& astCtx = ctx.session->getASTContext();
+    clang::QualType qualType = astCtx.getRecordType(decl);
+    size_t size = astCtx.getTypeSizeInChars(qualType).getQuantity();
+    size_t alignment = astCtx.getTypeAlignInChars(qualType).getQuantity();
+
+    size_t backingMemoryLength = (size + alignment - 1)/ alignment;
+
+    const char* backingMemoryType;
+    if (alignment >= 8)
+        backingMemoryType = "uint64_t";
+    else if (alignment >= 4)
+        backingMemoryType = "uint32_t";
+    else if (alignment >= 2)
+        backingMemoryType = "uint16_t";
+    else
+        backingMemoryType = "uint8_t";
+
+    std::string backingMemoryName = "_unionBindingBackingMemory"+std::to_string(ctx.nameCounter++);
+
+    ctx.output("internal %s %s[%zu];", backingMemoryType, backingMemoryName.c_str(), backingMemoryLength);
+
+    for (clang::FieldDecl* field: decl->fields())
+    {
+        dumpUnionField(ctx, field, size, backingMemoryType, backingMemoryLength, backingMemoryName.c_str());
+    }
+}
+
+void dumpRecord(
     BindingContext& ctx,
     clang::RecordDecl* decl,
-    const std::string& variableName = "",
-    const std::string& fallbackName = "")
+    const std::string& variableName,
+    const std::string& fallbackName)
 {
     std::optional<std::string> maybeName = maybeGetName(decl);
     if (!maybeName.has_value() && !fallbackName.empty())
@@ -1015,6 +1181,8 @@ void dumpStruct(
         return;
     }
 
+    // Unions don't exist in Slang, so we emit those as "weird" structs. So
+    // here, we're always emitting a struct, even if the C type is a union.
     if (maybeName.has_value())
     {
         ctx.output("public struct %s {", maybeName->c_str());
@@ -1027,7 +1195,6 @@ void dumpStruct(
     ctx.indentLevel++;
     ctx.pushScope();
 
-    size_t offset = 0;
     for (clang::Decl* decl: decl->decls())
     {
         if (
@@ -1036,9 +1203,18 @@ void dumpStruct(
         ) dumpDecl(ctx, decl, false);
     }
 
-    for (clang::FieldDecl* field: decl->fields())
+    switch(decl->getTagKind())
     {
-        dumpStructField(ctx, field, offset);
+    case clang::TagTypeKind::Class:
+    case clang::TagTypeKind::Struct:
+        dumpStructContents(ctx, decl);
+        break;
+    case clang::TagTypeKind::Union:
+        dumpUnionContents(ctx, decl);
+        break;
+    default:
+        assert(false);
+        break;
     }
 
     ctx.popScope();
@@ -1047,28 +1223,6 @@ void dumpStruct(
         ctx.output("} %s;", variableName.c_str());
     else
         ctx.output("};");
-}
-
-void dumpUnion(BindingContext& ctx, clang::RecordDecl* decl)
-{
-    // TODO
-}
-
-void dumpRecord(BindingContext& ctx, clang::RecordDecl* decl)
-{
-    switch(decl->getTagKind())
-    {
-    case clang::TagTypeKind::Class:
-    case clang::TagTypeKind::Struct:
-        dumpStruct(ctx, decl);
-        break;
-    case clang::TagTypeKind::Union:
-        dumpUnion(ctx, decl);
-        break;
-    default:
-        assert(false);
-        break;
-    }
 }
 
 void dumpTypedef(BindingContext& ctx, clang::TypedefDecl* decl)
