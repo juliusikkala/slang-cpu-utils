@@ -229,7 +229,7 @@ struct BindingContext
 
     std::set<std::string> declaredFunctions;
     std::vector<std::set<std::string>> definedTypes;
-    std::vector<std::set<std::string>> structForwardDeclarations;
+    std::vector<std::set<std::string>> typeForwardDeclarations;
     std::vector<std::filesystem::path> allowedSources;
 
     std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
@@ -278,7 +278,7 @@ struct BindingContext
     void pushScope()
     {
         definedTypes.push_back({});
-        structForwardDeclarations.push_back({});
+        typeForwardDeclarations.push_back({});
     }
 
     void addTypeDefinition(const std::string& name)
@@ -289,27 +289,41 @@ struct BindingContext
     bool typeDeclarationExists(const std::string& name)
     {
         return definedTypes.back().count(name) != 0 ||
-            structForwardDeclarations.back().count(name) != 0;
+            typeForwardDeclarations.back().count(name) != 0;
     }
 
-    void addStructForwardDeclare(const std::string& name)
+    void addTypeForwardDeclare(const std::string& name)
     {
-        structForwardDeclarations.back().insert(name);
+        typeForwardDeclarations.back().insert(name);
     }
 
     void popScope()
     {
         auto& decls = definedTypes.back();
-        auto& structFwdDecls = structForwardDeclarations.back();
+        auto& typeFwdDecls = typeForwardDeclarations.back();
+        bool topLevel = typeForwardDeclarations.size() <= 1 ;
+        auto& upperStructFwdDecls = topLevel ? typeFwdDecls :
+            typeForwardDeclarations[typeForwardDeclarations.size()-2];
 
         // Emit forward declarations for all types that never got a definition.
-        for (const std::string& name: structFwdDecls)
+        for (const std::string& name: typeFwdDecls)
         {
             if (decls.count(name) == 0)
-                output("public struct %s;", name.c_str());
+            {
+                if (topLevel)
+                {
+                    // No choice but to forward-declare.
+                    output("public struct %s;", name.c_str());
+                }
+                else
+                {
+                    // Punt the problem into the outer scope.
+                    upperStructFwdDecls.insert(name);
+                }
+            }
         }
 
-        structForwardDeclarations.pop_back();
+        typeForwardDeclarations.pop_back();
         definedTypes.pop_back();
     }
 
@@ -647,7 +661,7 @@ std::optional<std::string> maybeGetName(clang::TagDecl* decl)
     return {};
 }
 
-std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)
+std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)
 {
     const clang::Type& type = *qualType.getTypePtr();
     std::string qualifier;
@@ -720,13 +734,13 @@ std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQual
             return "NativeString";
         }
         // Pointer const qualifiers don't work in Slang, so we omit those.
-        return "Ptr<"+typeStr(ctx, pointeeType, true)+">";
+        return "Ptr<"+getTypeStr(ctx, pointeeType, true)+">";
     }
     else if(type.isConstantArrayType())
     {
         const clang::ArrayType* arr = type.getAsArrayTypeUnsafe();
         const clang::ConstantArrayType* constArr = clang::cast<clang::ConstantArrayType>(arr);
-        return typeStr(ctx, arr->getElementType())+"["+std::to_string(constArr->getLimitedSize())+"]";
+        return getTypeStr(ctx, arr->getElementType())+"["+std::to_string(constArr->getLimitedSize())+"]";
     }
     else if(type.isFunctionProtoType())
     {
@@ -739,7 +753,25 @@ std::string typeStr(BindingContext& ctx, clang::QualType qualType, bool omitQual
         // This relies on us never changing the names of types from C. I hope
         // we never have to do that.
         clang::TagDecl* decl = type.getAsTagDecl();
-        return qualifier + decl->getName().str();
+        std::string ident = decl->getName().str();
+
+        // If this type is not defined in the files we're generating the
+        // bindings for, we'll need to cover it somehow else.
+        if (!isLocationActive(ctx, decl->getLocation()))
+        {
+            if (type.isRecordType())
+            {
+                // Add a forward declare for structs and unions.
+                ctx.addTypeForwardDeclare(ident);
+            }
+            else if (type.isEnumeralType())
+            {
+                // Use the underlying type for enums.
+                clang::EnumDecl* enumDecl = clang::cast<clang::EnumDecl>(decl);
+                ident = getTypeStr(ctx, enumDecl->getIntegerType(), true);
+            }
+        }
+        return qualifier + ident;
     }
     assert(false);
 }
@@ -834,9 +866,11 @@ void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& var
         }
     }
 
-    std::string underlyingType = typeStr(ctx, decl->getIntegerType());
+    std::string underlyingType = getTypeStr(ctx, decl->getIntegerType());
     if (name)
     {
+        ctx.addTypeDefinition(*name);
+
         // Normal named enum.
         if (isUnscopedEnum(*name))
             ctx.output("[UnscopedEnum]");
@@ -911,7 +945,7 @@ void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offse
 
         clang::QualType qualType = field->getType();
         std::string name = field->getName().str();
-        std::string type = typeStr(ctx, qualType);
+        std::string type = getTypeStr(ctx, qualType);
 
         if (field->isBitField())
         {
@@ -949,7 +983,7 @@ void dumpStruct(
         // declarations at the end. Slang doesn't need forward declarations
         // unless the type is opaque.
         if (maybeName.has_value())
-            ctx.addStructForwardDeclare(*maybeName);
+            ctx.addTypeForwardDeclare(*maybeName);
         return;
     }
 
@@ -1014,7 +1048,8 @@ void dumpTypedef(BindingContext& ctx, clang::TypedefDecl* decl)
     std::string name = decl->getName().str();
     if (ctx.typeDeclarationExists(name))
         return;
-    std::string underlyingType = typeStr(ctx, decl->getUnderlyingType(), true);
+    ctx.addTypeDefinition(name);
+    std::string underlyingType = getTypeStr(ctx, decl->getUnderlyingType(), true);
     ctx.output("public typealias %s = %s;", name.c_str(), underlyingType.c_str());
 }
 
@@ -1048,7 +1083,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
         if (type.isStructureType())
             needsCallWrapper = true;
 
-        paramString += typeStr(ctx, qualType);
+        paramString += getTypeStr(ctx, qualType);
         paramString += " ";
         paramString += param->getName().str();
         first = false;
@@ -1059,7 +1094,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
     if (retType.isStructureType() || retType.isConstantArrayType())
         needsCallWrapper = true;
 
-    std::string returnString = typeStr(ctx, qualRetType);
+    std::string returnString = getTypeStr(ctx, qualRetType);
 
     if (!needsCallWrapper)
     {
@@ -1103,14 +1138,14 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
             if (type.isStructureType())
             {
                 call += "&"+name;
-                slangPrototype += "Ptr<"+typeStr(ctx, qualType, true)+"> " + cTagName;
+                slangPrototype += "Ptr<"+getTypeStr(ctx, qualType, true)+"> " + cTagName;
                 cAdapter += qualType.getAsString() + "* " + cTagName;
                 cAdapterCall += "*"+cTagName;
             }
             else
             {
                 call += name;
-                slangPrototype += typeStr(ctx, qualType) + " " + cTagName;
+                slangPrototype += getTypeStr(ctx, qualType) + " " + cTagName;
                 cAdapter += qualType.getAsString() + " " + cTagName;
                 cAdapterCall += cTagName;
             }
@@ -1129,7 +1164,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
 
             call += "&returnval";
             std::string cTagName = FUNCTION_ADAPTER_ARG_NAME + std::to_string(paramIndex);
-            slangPrototype += "Ptr<"+typeStr(ctx, qualRetType, true) + "> " + cTagName;
+            slangPrototype += "Ptr<"+getTypeStr(ctx, qualRetType, true) + "> " + cTagName;
             cAdapter += qualRetType.getUnqualifiedType().getAsString() + "* "+cTagName;
             cAdapterCall = "*" + cTagName+" = " + cAdapterCall;
             paramIndex++;
@@ -1182,7 +1217,7 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
     policy.EntireContentsOfLargeArray = 1;
     policy.Indentation = 4;
 
-    std::string type = typeStr(ctx, decl->getType(), true);
+    std::string type = getTypeStr(ctx, decl->getType(), true);
 
     if (result.Val.isInt())
     {
@@ -1270,10 +1305,10 @@ void SlangMacroBindgen::MacroDefined(const clang::Token &MacroNameTok, const cla
 
     if (mi->isFunctionLike())
     {
-        // TODO: Can't yet lower function-like macros, unfortunately. That's
-        // because we can't turn those into real functions without knowing the
-        // types of the parameters, which is non-trivial and sometimes
-        // impossible.
+        // TODO: Can't yet generate bindings for function-like macros,
+        // unfortunately. That's because we can't turn those into real
+        // functions without knowing the types of the parameters, which is
+        // non-trivial and sometimes impossible.
         return;
     }
 
