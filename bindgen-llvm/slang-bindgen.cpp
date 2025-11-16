@@ -33,7 +33,7 @@ static struct {
     std::vector<std::string> cHeaders;
     std::vector<std::string> importModules;
     std::vector<std::string> usingNamespaces;
-    std::vector<std::string> importedSources;
+    std::vector<std::string> importedHeaders;
     std::vector<std::string> defines;
     std::vector<std::string> includePaths;
     std::vector<std::regex> unscopedEnums;
@@ -129,7 +129,7 @@ bool parseOptions(int argc, const char** argv)
             }
             else if (strcmp(arg, "imported") == 0)
             {
-                options.importedSources.push_back(value);
+                options.importedHeaders.push_back(value);
                 i++;
             }
             else if (strcmp(arg, "define") == 0)
@@ -231,6 +231,7 @@ struct BindingContext
     std::vector<std::set<std::string>> definedTypes;
     std::vector<std::set<std::string>> typeForwardDeclarations;
     std::vector<std::filesystem::path> allowedSources;
+    std::vector<std::filesystem::path> visibleSources;
 
     std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
     std::map<std::string, std::string> knownDefinitions;
@@ -248,7 +249,14 @@ struct BindingContext
         }
 
         for (const std::string& s: options.cHeaders)
+        {
             allowedSources.push_back(s);
+            visibleSources.push_back(s);
+        }
+        for (const std::string& s: options.importedHeaders)
+        {
+            visibleSources.push_back(s);
+        }
     }
 
     ~BindingContext()
@@ -590,6 +598,26 @@ bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
     return false;
 }
 
+bool isLocationVisible(BindingContext& ctx, clang::SourceLocation loc)
+{
+    auto& sourceManager = ctx.session->clang->getSourceManager();
+    std::filesystem::path path(sourceManager.getFilename(loc).str());
+
+    for (auto& allowed: ctx.visibleSources)
+    {
+        try
+        {
+            if (std::filesystem::equivalent(path, allowed))
+                return true;
+        }
+        catch(...)
+        {
+            continue;
+        }
+    }
+    return false;
+}
+
 void generateFunctionWrapper(
     BindingContext& ctx,
     const std::string& preamble,
@@ -757,7 +785,7 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
 
         // If this type is not defined in the files we're generating the
         // bindings for, we'll need to cover it somehow else.
-        if (!isLocationActive(ctx, decl->getLocation()))
+        if (!isLocationVisible(ctx, decl->getLocation()))
         {
             if (type.isRecordType())
             {
