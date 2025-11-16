@@ -233,6 +233,7 @@ struct BindingContext
     std::vector<std::filesystem::path> allowedSources;
 
     std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
+    std::map<std::string, std::string> knownDefinitions;
 
     BindingContext(const std::string& outputPath)
     {
@@ -1266,8 +1267,123 @@ void SlangMacroBindgen::MacroDefined(const clang::Token &MacroNameTok, const cla
 
     std::string name = MacroNameTok.getIdentifierInfo()->getName().str();
     const clang::MacroInfo* mi = MD->getMacroInfo();
-    // TODO make this work with a let or an inline function maybe.
-    ctx->output("public static let %s = ;", name.c_str());
+
+    if (mi->isFunctionLike())
+    {
+        // TODO: Can't yet lower function-like macros, unfortunately. That's
+        // because we can't turn those into real functions without knowing the
+        // types of the parameters, which is non-trivial and sometimes
+        // impossible.
+        return;
+    }
+
+    std::string definition;
+    bool first = true;
+
+    for (const auto& token : mi->tokens())
+    {
+        if (!first)
+            definition += " ";
+        switch (token.getKind())
+        {
+        case clang::tok::TokenKind::identifier:
+            {
+                std::string id = token.getIdentifierInfo()->getName().str();
+                if (ctx->knownDefinitions.count(id))
+                {
+                    definition += id;
+                    // Or:
+                    //definition += ctx->knownDefinitions.at(id);
+                }
+                else return;
+            }
+            break;
+        case clang::tok::TokenKind::string_literal:
+        case clang::tok::TokenKind::numeric_constant:
+        case clang::tok::TokenKind::char_constant:
+            definition += std::string(token.getLiteralData(), token.getLength());
+            break;
+        case clang::tok::TokenKind::equalequal:
+            definition += "==";
+            break;
+        case clang::tok::TokenKind::less:
+            definition += "<";
+            break;
+        case clang::tok::TokenKind::lessequal:
+            definition += "<=";
+            break;
+        case clang::tok::TokenKind::greater:
+            definition += ">";
+            break;
+        case clang::tok::TokenKind::greaterequal:
+            definition += ">=";
+            break;
+        case clang::tok::TokenKind::greatergreater:
+            definition += ">>";
+            break;
+        case clang::tok::TokenKind::lessless:
+            definition += "<<";
+            break;
+        case clang::tok::TokenKind::exclaim:
+            definition += "!";
+            break;
+        case clang::tok::TokenKind::pipepipe:
+            definition += "||";
+            break;
+        case clang::tok::TokenKind::ampamp:
+            definition += "&&";
+            break;
+        case clang::tok::TokenKind::pipe:
+            definition += "|";
+            break;
+        case clang::tok::TokenKind::caret:
+            definition += "^";
+            break;
+        case clang::tok::TokenKind::amp:
+            definition += "&";
+            break;
+        case clang::tok::TokenKind::tilde:
+            definition += "~";
+            break;
+        case clang::tok::TokenKind::plus:
+            definition += "+";
+            break;
+        case clang::tok::TokenKind::minus:
+            definition += "-";
+            break;
+        case clang::tok::TokenKind::star:
+            definition += "*";
+            break;
+        case clang::tok::TokenKind::slash:
+            definition += "/";
+            break;
+        case clang::tok::TokenKind::percent:
+            definition += "%";
+            break;
+        case clang::tok::TokenKind::l_paren:
+            definition += "(";
+            break;
+        case clang::tok::TokenKind::r_paren:
+            definition += ")";
+            break;
+        case clang::tok::TokenKind::question:
+            definition += "?";
+            break;
+        case clang::tok::TokenKind::colon:
+            definition += ":";
+            break;
+        default:
+            // This token type won't work as Slang, and would require more
+            // complex transformations.
+            return;
+        }
+        first = false;
+    }
+
+    const clang::Token& token = mi->getReplacementToken(0);
+
+    ctx->output("public static let %s = %s;", name.c_str(), definition.c_str());
+    ctx->knownDefinitions[name] = definition;
 }
 
 SlangBindgen::~SlangBindgen()
