@@ -397,14 +397,19 @@ public:
         const clang::Diagnostic& info
     ) override
     {
+        auto loc = info.getLocation();
+        auto& sourceManager = info.getSourceManager();
+        std::string filename = sourceManager.getFilename(loc).str();
+        int line = sourceManager.getPresumedLineNumber(loc);
+        llvm::SmallString<100> text;
+        info.FormatDiagnostic(text);
         if (
             level == clang::DiagnosticsEngine::Level::Fatal ||
             level == clang::DiagnosticsEngine::Level::Error
         ){
-            llvm::SmallString<100> text;
-            info.FormatDiagnostic(text);
-            fprintf(stderr, "// Error: %s\n", text.c_str());
+            fprintf(stderr, "// Error: (%s:%d) %s\n", filename.c_str(), line, text.c_str());
         }
+        //else fprintf(stderr, "// (%s:%d) %s\n", filename.c_str(), line, text.c_str());
     }
 };
 
@@ -490,7 +495,7 @@ struct ClangSession
             includes, clang::LangStandard::Kind::lang_c17
         );
         auto& searchOpts = clang->getHeaderSearchOpts();
-        for (const std::string& path: options.defines)
+        for (const std::string& path: options.includePaths)
             searchOpts.AddPath(path, clang::frontend::IncludeDirGroup::Angled, false, false);
 
         searchOpts.UseBuiltinIncludes = true;
@@ -581,6 +586,7 @@ struct ClangSession
 bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
 {
     auto& sourceManager = ctx.session->clang->getSourceManager();
+    loc = sourceManager.getFileLoc(loc);
     std::filesystem::path path(sourceManager.getFilename(loc).str());
 
     for (auto& allowed: ctx.allowedSources)
@@ -601,6 +607,7 @@ bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
 bool isLocationVisible(BindingContext& ctx, clang::SourceLocation loc)
 {
     auto& sourceManager = ctx.session->clang->getSourceManager();
+    loc = sourceManager.getFileLoc(loc);
     std::filesystem::path path(sourceManager.getFilename(loc).str());
 
     for (auto& allowed: ctx.visibleSources)
@@ -652,7 +659,7 @@ void generateFunctionWrapper(
 
     ctx.output("%s {", info.slangPrototype.c_str());
     ctx.indentLevel++;
-    ctx.output("__requirePrelude(R\"(%s)\")", ir.c_str());
+    ctx.output("__requirePrelude(R\"(%s)\");", ir.c_str());
     std::string callInst = "call void @" + info.adapterFunctionName + "(";
     for (int i = 0; i < info.argCount; ++i)
     {
@@ -697,6 +704,15 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
     {
         if (qualType.isConstQualified())
             qualifier += "const ";
+    }
+
+    if (const clang::TypedefType* typedefType = type.getAs<clang::TypedefType>())
+    {
+        clang::TypedefNameDecl* decl = typedefType->getDecl();
+        // Use typedef names if the decl is visible, those should exist.
+        if (isLocationVisible(ctx, decl->getLocation()))
+            return decl->getName().str();
+        // Otherwise, continue with the canonical type.
     }
 
     if (type.isBuiltinType())
@@ -979,6 +995,8 @@ void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offse
     {
         offset += alignedOffset - offset;
 
+        clang::RecordDecl* recordDecl = qualType->getAsRecordDecl();
+
         std::string name = field->getName().str();
         std::string type = getTypeStr(ctx, qualType);
 
@@ -986,17 +1004,13 @@ void dumpStructField(BindingContext& ctx, clang::FieldDecl* field, size_t& offse
         {
             ctx.output("public %s %s : %u;", type.c_str(), name.c_str(), field->getBitWidthValue());
         }
+        else if (recordDecl && !recordDecl->getDeclName())
+        {
+            dumpRecord(ctx, recordDecl, name);
+        }
         else
         {
-            clang::RecordDecl* recordDecl = qualType->getAsRecordDecl();
-            if (recordDecl && recordDecl->isAnonymousStructOrUnion())
-            {
-                dumpRecord(ctx, recordDecl, name);
-            }
-            else
-            {
-                ctx.output("public %s %s;", type.c_str(), name.c_str());
-            }
+            ctx.output("public %s %s;", type.c_str(), name.c_str());
         }
 
         offset += size;
@@ -1409,7 +1423,7 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
         initializerStr = text.str();
 
         if(astCtx.getTypeSize(initializerType) == 64)
-            initializerStr += "l";
+            initializerStr += "ll";
         if(initializerType->isUnsignedIntegerType())
             initializerStr += "u";
     }
@@ -1485,7 +1499,7 @@ void SlangMacroBindgen::MacroDefined(const clang::Token &MacroNameTok, const cla
     std::string name = MacroNameTok.getIdentifierInfo()->getName().str();
     const clang::MacroInfo* mi = MD->getMacroInfo();
 
-    if (mi->isFunctionLike())
+    if (mi->isFunctionLike() || mi->getNumTokens() == 0)
     {
         // TODO: Can't yet generate bindings for function-like macros,
         // unfortunately. That's because we can't turn those into real
@@ -1659,8 +1673,10 @@ int main(int argc, const char** argv)
     session.determineIntegerSizes(ctx);
 
     std::string inputSource = "";
-    for (const std::string& ns: options.cHeaders)
-        inputSource += "#include \""+ns+"\"\n";
+    for (const std::string& header: options.importedHeaders)
+        inputSource += "#include \""+header+"\"\n";
+    for (const std::string& header: options.cHeaders)
+        inputSource += "#include \""+header+"\"\n";
 
     ctx.pushScope();
 
