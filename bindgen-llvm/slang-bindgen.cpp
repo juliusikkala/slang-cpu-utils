@@ -1289,7 +1289,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
             qualRetType.print(shimStream, printingPolicy);
         }
 
-        adapterSlangDecl += " ";
+        adapterSlangDecl += " " + call;
         shimStream << " " << call;
 
         int paramIndex = 0;
