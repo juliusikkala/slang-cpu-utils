@@ -29,6 +29,7 @@ Options:
 * `--rm-enum-case <regex>` removes matching cases from all enums.
 * `--fallback-prefix <str>` adds the given prefix to all enum case names that would not be valid in Slang.
 * `--use-byte-bool` uses `uint8_t` instead of bool. Useful when overriding default layout to something where `sizeof(bool) != 1`.
+* `--call-shim <object-file>` generates shim object code for calling C functions with difficult calling convention issues
 
 ## How it's made
 
@@ -88,5 +89,11 @@ function pointers. Variadic arguments are not supported for now.
 
 Functions are generally forward-declared with `__extern_cpp`, but only when the
 Slang's LLVM ABI matches the C ABI. This is not the case when passing or
-returning structs; in that case, a complicated adapter function is generated
-using Clang. Luckily, most high-profile C APIs don't pass structs by value.
+returning structs.
+
+In that specific case (which luckily most high-profile C APIs largely avoid),
+you have two options:
+
+1. Omit such functions from bindings (default)
+2. Specify `--call-shim <object-file>` to generate an object file that contains
+   wrappers that handle this calling convention problem.

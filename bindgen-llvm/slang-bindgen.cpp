@@ -23,12 +23,13 @@
 #include <memory>
 #include <filesystem>
 
-#define FUNCTION_ADAPTER_NAME "_BINDGEN_FUNC_ADAPTER"
-#define FUNCTION_ADAPTER_ARG_NAME "_BINDGEN_ARG_"
+#define FUNCTION_ADAPTER_NAME "_SLANG_BINDGEN_FUNC_ADAPTER_"
+#define FUNCTION_ADAPTER_ARG_NAME "_SLANG_BINDGEN_ARG_"
 
 static struct {
     std::string inNamespace;
     std::string outputPath;
+    std::string shimOutputPath;
     std::string targetTriple;
     std::vector<std::string> cHeaders;
     std::vector<std::string> importModules;
@@ -68,6 +69,8 @@ Options:
                           would not be valid in Slang
 --use-byte-bool           uses uint8_t instead of bool. Useful when overriding
                           default layout to something where sizeof(bool) != 1.
+--call-shim <object-file> generates shim object code for calling C functions
+                          with difficult calling convention issues
 )";
 
 void printHelp(bool asError, const char** argv)
@@ -171,6 +174,11 @@ bool parseOptions(int argc, const char** argv)
             {
                 options.useByteBool = true;
             }
+            else if (strcmp(arg, "call-shim") == 0)
+            {
+                options.shimOutputPath = value;
+                i++;
+            }
             else
             {
                 fprintf(stderr, "Unknown flag: %s\n", arg);
@@ -199,17 +207,6 @@ size_t roundToAlignment(size_t size, size_t align)
 
 struct BindingContext;
 
-struct FunctionWrapperInfo
-{
-    std::string slangPrototype;
-    std::string cAdapter;
-    std::string functionName;
-    std::string adapterFunctionName;
-    int argCount;
-};
-
-void generateFunctionWrapper(BindingContext& ctx, const std::string& preamble, const FunctionWrapperInfo& info);
-
 struct ClangSession;
 struct BindingContext
 {
@@ -233,8 +230,9 @@ struct BindingContext
     std::vector<std::filesystem::path> allowedSources;
     std::vector<std::filesystem::path> visibleSources;
 
-    std::vector<FunctionWrapperInfo> pendingFunctionWrappers;
     std::map<std::string, std::string> knownDefinitions;
+
+    std::string shimCode;
 
     BindingContext(const std::string& outputPath)
     {
@@ -347,13 +345,7 @@ struct BindingContext
             output("private uint8_t __pad%d[%d];", nameCounter++, bytes);
     }
 
-    void generateFunctionWrappers(const std::string& preamble)
-    {
-        for (FunctionWrapperInfo& wrapper: pendingFunctionWrappers)
-        {
-            generateFunctionWrapper(*this, preamble, wrapper);
-        }
-    }
+    void emitShimLibrary();
 };
 
 class SlangMacroBindgen : public clang::PPCallbacks
@@ -465,7 +457,7 @@ struct ClangSession
         // include directories based on that :( it doesn't mean that this
         // program would actually depend on the presence of the Clang executable
         // itself.
-        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I.", "-g0"}));
+        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I.", "-g0", "-fvisibility=default"}));
         const auto &jobs = comp->getJobs();
         assert(jobs.size() == 1);
         // These args should contain correct system include directories as well.
@@ -625,52 +617,25 @@ bool isLocationVisible(BindingContext& ctx, clang::SourceLocation loc)
     return false;
 }
 
-void generateFunctionWrapper(
-    BindingContext& ctx,
-    const std::string& preamble,
-    const FunctionWrapperInfo& info
-){
-    std::string source = preamble + "\n" + info.cAdapter;
-
+void BindingContext::emitShimLibrary()
+{
     clang::InputKind inputKind(clang::Language::C, clang::InputKind::Format::Source);
-    clang::FrontendInputFile inputFile(llvm::MemoryBufferRef(source, "<inline-bindgen>"), inputKind);
+    clang::FrontendInputFile inputFile(llvm::MemoryBufferRef(shimCode, "<inline-bindgen>"), inputKind);
 
-    auto& session = *ctx.session;
-    auto& invocation = session.clang->getInvocation();
+    auto& invocation = session->clang->getInvocation();
     auto& frontendOpts = invocation.getFrontendOpts();
     frontendOpts.Inputs.clear();
     frontendOpts.Inputs.push_back(inputFile);
+    frontendOpts.OutputFile = options.shimOutputPath;
 
     auto& codegenOpts = invocation.getCodeGenOpts();
-    codegenOpts.OptimizationLevel = 1;
+    codegenOpts.OptimizationLevel = 3;
 
     std::unique_ptr<llvm::LLVMContext> llvmContext = std::make_unique<llvm::LLVMContext>();
-    std::unique_ptr<clang::CodeGenAction> codeGenAction(new clang::EmitLLVMOnlyAction(llvmContext.get()));
+    std::unique_ptr<clang::CodeGenAction> codeGenAction(new clang::EmitObjAction(llvmContext.get()));
 
-    if (!session.clang->ExecuteAction(*codeGenAction))
+    if (!session->clang->ExecuteAction(*codeGenAction))
         exit(1);
-
-    std::unique_ptr<llvm::Module> mod = codeGenAction->takeModule();
-    llvm::StripDebugInfo(*mod);
-
-    std::string ir;
-    llvm::raw_string_ostream irStream(ir);
-    mod->print(irStream, nullptr);
-
-    ctx.output("%s {", info.slangPrototype.c_str());
-    ctx.indentLevel++;
-    ctx.output("__requirePrelude(R\"(%s)\");", ir.c_str());
-    std::string callInst = "call void @" + info.adapterFunctionName + "(";
-    for (int i = 0; i < info.argCount; ++i)
-    {
-        if (i != 0)
-            callInst += ", ";
-        callInst += "$"+std::to_string(i);
-    }
-    callInst += ")";
-    ctx.output("__intrinsic_asm \"%s\";", callInst.c_str());
-    ctx.indentLevel--;
-    ctx.output("}");
 }
 
 bool isUnscopedEnum(const std::string& enumName)
@@ -1264,7 +1229,8 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
 
     ctx.declaredFunctions.insert(name);
 
-    bool needsCallWrapper = false;
+    bool paramsNeedCallWrapper = false;
+    bool returnNeedsCallWrapper = false;
 
     std::string paramString;
     bool first = true;
@@ -1277,7 +1243,7 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
 
         // Passing structs by value... uh oh.
         if (type.isStructureType())
-            needsCallWrapper = true;
+            paramsNeedCallWrapper = true;
 
         paramString += getTypeStr(ctx, qualType);
         paramString += " ";
@@ -1288,43 +1254,53 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
     clang::QualType qualRetType = decl->getReturnType();
     const clang::Type& retType = *qualRetType.getTypePtr();
     if (retType.isStructureType() || retType.isConstantArrayType())
-        needsCallWrapper = true;
+        returnNeedsCallWrapper = true;
 
     std::string returnString = getTypeStr(ctx, qualRetType);
 
-    if (!needsCallWrapper)
+    if (!paramsNeedCallWrapper && !returnNeedsCallWrapper)
     {
         // Simple case, our calling convention matches C
         ctx.output("public __extern_cpp %s %s(%s);", returnString.c_str(), name.c_str(), paramString.c_str());
     }
-    else
+    else if (!options.shimOutputPath.empty())
     {
         // Hard case, struct arguments are turned into pointers and returned
-        // structs into an extra pointer argument.
+        // structs into an extra pointer argument. Need to emit shim library
+        // for this.
         ctx.output("[ForceInline]");
         ctx.output("public %s %s(%s) {", returnString.c_str(), name.c_str(), paramString.c_str());
         ctx.indentLevel++;
 
-        std::string adapterName = "_bindgen_adapter_" + name;
-        std::string call = adapterName + "(";
-        std::string slangPrototype = "[ForceInline]\ninternal ";
-        std::string cAdapterCall = name + "(";
-        std::string cAdapter;
-        cAdapter = "void";
-        slangPrototype += "void";
+        std::string call = FUNCTION_ADAPTER_NAME + name + "(";
+        std::string cCall = name + "(";
+        std::string adapterSlangDecl = call;
 
-        std::string cAdapterName = FUNCTION_ADAPTER_NAME + std::to_string(ctx.nameCounter++);
-        cAdapter += " " + cAdapterName + "(";
-        slangPrototype += " " + adapterName + "(";
+        llvm::raw_string_ostream shimStream(ctx.shimCode);
+        auto printingPolicy = ctx.session->getASTContext().getPrintingPolicy();
+        if (returnNeedsCallWrapper)
+        {
+            adapterSlangDecl += "void";
+            shimStream << "void";
+        }
+        else
+        {
+            adapterSlangDecl = returnString;
+            qualRetType.print(shimStream, printingPolicy);
+        }
+
+        adapterSlangDecl += " ";
+        shimStream << " " << call;
+
         int paramIndex = 0;
         for (clang::ParmVarDecl* param: decl->parameters())
         {
             if (paramIndex != 0)
             {
                 call += ", ";
-                slangPrototype += ", ";
-                cAdapter += ", ";
-                cAdapterCall += ", ";
+                cCall += ", ";
+                adapterSlangDecl += ", ";
+                shimStream << ", ";
             }
             clang::QualType qualType = param->getType();
             const clang::Type& type = *qualType.getTypePtr();
@@ -1333,62 +1309,68 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
             std::string cTagName = FUNCTION_ADAPTER_ARG_NAME + std::to_string(paramIndex);
             if (type.isStructureType())
             {
-                call += "&"+name;
-                slangPrototype += "Ptr<"+getTypeStr(ctx, qualType, true)+"> " + cTagName;
-                cAdapter += qualType.getAsString() + "* " + cTagName;
-                cAdapterCall += "*"+cTagName;
+                call += "&";
+                cCall += "*";
+                adapterSlangDecl += "Ptr<"+getTypeStr(ctx, qualType, true)+">";
+
+                clang::QualType qp = ctx.session->getASTContext().getPointerType(qualType);
+                qp.print(shimStream, printingPolicy);
             }
             else
             {
-                call += name;
-                slangPrototype += getTypeStr(ctx, qualType) + " " + cTagName;
-                cAdapter += qualType.getAsString() + " " + cTagName;
-                cAdapterCall += cTagName;
+                adapterSlangDecl += getTypeStr(ctx, qualType);
+                qualType.print(shimStream, printingPolicy);
             }
+            call += name;
+            cCall += cTagName;
+            adapterSlangDecl += " " + cTagName;
+            shimStream << " " << cTagName;
 
             paramIndex++;
         }
-
-        if (!retType.isVoidType())
+        if (returnNeedsCallWrapper)
         {
-            if(paramIndex != 0)
+            if (paramIndex != 0)
             {
                 call += ", ";
-                slangPrototype += ", ";
-                cAdapter += ", ";
+                adapterSlangDecl += ", ";
+                shimStream << ", ";
             }
+            call += "&returnvalue";
+            adapterSlangDecl += "Ptr<"+returnString+"> returnvalue";
 
-            call += "&returnval";
-            std::string cTagName = FUNCTION_ADAPTER_ARG_NAME + std::to_string(paramIndex);
-            slangPrototype += "Ptr<"+getTypeStr(ctx, qualRetType, true) + "> " + cTagName;
-            cAdapter += qualRetType.getUnqualifiedType().getAsString() + "* "+cTagName;
-            cAdapterCall = "*" + cTagName+" = " + cAdapterCall;
-            paramIndex++;
+            clang::QualType qp = ctx.session->getASTContext().getPointerType(qualRetType);
+            qp.print(shimStream, printingPolicy);
+            shimStream << " returnvalue";
         }
-        cAdapter += "){\n    "+cAdapterCall+");\n}\n";
-        call += ")";
-        slangPrototype += ")";
 
-        if(retType.isVoidType())
+        call += ")";
+        cCall += ")";
+        adapterSlangDecl += ")";
+        shimStream << ") {\n";
+
+        if (returnNeedsCallWrapper)
+        {
+            ctx.output("%s returnvalue;", returnString.c_str());
+            ctx.output("%s;", call.c_str());
+            ctx.output("return returnvalue;");
+            shimStream << "    *returnvalue = " << cCall << ";\n";
+        }
+        else if (retType.isVoidType())
         {
             ctx.output("%s;", call.c_str());
+            shimStream << "    " << cCall << ";\n";
         }
         else
         {
-            ctx.output("%s returnval;", returnString.c_str());
-            ctx.output("%s;", call.c_str());
-            ctx.output("return returnval;");
+            ctx.output("return %s;", call.c_str());
+            shimStream << "    return " << cCall << ";\n";
         }
+
         ctx.indentLevel--;
         ctx.output("}");
-
-        ctx.pendingFunctionWrappers.push_back({
-            slangPrototype,
-            cAdapter,
-            name,
-            cAdapterName,
-            paramIndex
-        });
+        shimStream << "}\n";
+        ctx.output("__extern_cpp %s;", adapterSlangDecl.c_str());
     }
 }
 
@@ -1678,13 +1660,17 @@ int main(int argc, const char** argv)
     for (const std::string& header: options.cHeaders)
         inputSource += "#include \""+header+"\"\n";
 
+    ctx.shimCode = inputSource;
+
     ctx.pushScope();
 
     session.parseSource(ctx, inputSource);
 
     ctx.popScope();
 
-    ctx.generateFunctionWrappers(inputSource);
+    // TODO compile shim code
+    if (!options.shimOutputPath.empty())
+        ctx.emitShimLibrary();
 
     if (!options.inNamespace.empty())
     {
