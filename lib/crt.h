@@ -9,7 +9,17 @@ void abort(void);
 void* memcpy(void* dest, const void* src, Size count);
 void* memset(void* dest, Int ch, Size count);
 
-void exit(int status);
+Int strcmp(const char* lhs, const char* rhs);
+
+File* fopen(const char* filename, const char* mode);
+Int fclose(File* stream);
+Size fread(void* buffer, Size size, Size count, File* stream);
+Int fgetc(File* stream);
+Size fwrite(const void* buffer, Size size, Size count, File* stream);
+Long ftell(File* stream);
+Int fseek(File* stream, Long offset, Int origin);
+
+void exit(Int status);
 
 Time time(Time* arg);
 double difftime(Time time_end, Time time_beg);
@@ -23,4 +33,6 @@ void* _aligned_free(void* memblock);
 void* aligned_alloc(Size alignment, Size size);
 #endif
 
-static const uint64_t CLOCK_TICKS_PER_SEC = CLOCKS_PER_SEC;
+extern File* stdout;
+extern File* stderr;
+extern File* stdin;

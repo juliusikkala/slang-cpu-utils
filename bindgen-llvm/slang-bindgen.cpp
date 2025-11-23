@@ -1374,12 +1374,8 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
     }
 }
 
-void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
+void dumpConstantVar(BindingContext& ctx, clang::VarDecl* decl)
 {
-    // Only expose constant variables.
-    if (!decl->getType().isConstQualified() || !decl->hasInit())
-        return;
-
     clang::Expr* initializer = decl->getInit();
     clang::QualType initializerType = initializer->getType();
     std::string initializerStr;
@@ -1444,6 +1440,25 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
         std::string(decl->getName()).c_str(),
         initializerStr.c_str()
     );
+}
+
+void dumpExternVar(BindingContext& ctx, clang::VarDecl* decl)
+{
+    std::string type = getTypeStr(ctx, decl->getType());
+    ctx.output(
+        "public static __extern_cpp %s %s;",
+        type.c_str(),
+        std::string(decl->getName()).c_str()
+    );
+}
+
+void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
+{
+    // Only expose constant variables.
+    if (decl->getType().isConstQualified() && decl->hasInit())
+        dumpConstantVar(ctx, decl);
+    else if (!decl->hasInit() && decl->hasExternalStorage())
+        dumpExternVar(ctx, decl);
 }
 
 void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)

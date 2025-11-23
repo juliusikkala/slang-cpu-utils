@@ -3,12 +3,13 @@ import array;
 import drop;
 import span;
 import hash;
+import crt;
 
 public NativeString ptrToString<T>(Ptr<T> ptr)
 {
     // These bad boys are surprisingly hard to construct, since reinterpret<T>
     // doesn't like NativeString.
-    __intrinsic_asm "((const char*)$0)";
+    __intrinsic_asm "ret $0";
 }
 
 public Ptr<T> stringToPtr<T>(NativeString ptr)
@@ -431,7 +432,7 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
 
 public bool operator==(NativeString str, NativeString other)
 {
-    __intrinsic_asm "strcmp($0, $1) == 0";
+    return C.strcmp(str, other) == 0;
 }
 
 public bool operator==(U8String a, NativeString b)
