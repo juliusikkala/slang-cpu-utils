@@ -31,11 +31,11 @@ set(CMAKE_Slang_OUTPUT_EXTENSION -module)
 # Build a executable 
 if (WIN32)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_FLAGS> <LINK_LIBRARIES> -o <TARGET>"
+        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -o <TARGET>"
     )
 elseif(UNIX)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_FLAGS> <LINK_LIBRARIES> -o <TARGET>"
+        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -o <TARGET>"
     )
 endif()
 
@@ -52,7 +52,7 @@ function(add_slang_library target-name)
     # This one's a bit funny. Typical link flags would be addressed to the 
     # downstream C++ compiler. However, we escape out with `-X.` to pass flags
     # directly to Slang for this one to work.
-    #target_link_options(${target-name} INTERFACE -X. -I${MODULE_PATH} -Xgenericcpp...)
+    target_link_options(${target-name} INTERFACE -I${MODULE_PATH})
 endfunction()
 
 # TODO Figure out a clean way to allow passing flags to shader Slang only!
