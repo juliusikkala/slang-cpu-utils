@@ -3,8 +3,6 @@ import drop;
 import list;
 import memory;
 import crt;
-import ctypes;
-import cconstants;
 
 public Optional<U8String> readLine()
 {
@@ -35,7 +33,7 @@ public enum IOError
 
 public List<uint8_t> readBinaryFile(NativeString path) throws IOError
 {
-    C.File* f = C.fopen(path, "rb");
+    C.FILE* f = C.fopen(path, "rb");
 
     if (f == nullptr)
         throw IOError.Open;
@@ -58,7 +56,7 @@ public List<uint8_t> readBinaryFile(NativeString path) throws IOError
 
 public void writeBinaryFile(NativeString path, Ptr<uint8_t> data, size_t size) throws IOError
 {
-    C.File* f = C.fopen(path, "wb");
+    C.FILE* f = C.fopen(path, "wb");
 
     if (f == nullptr)
         throw IOError.Open;

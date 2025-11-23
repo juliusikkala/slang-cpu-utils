@@ -1,4 +1,3 @@
-import ctypes;
 import crt;
 
 // sizeof() in Slang gives the size of a struct without trailing padding, but

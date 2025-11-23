@@ -35,7 +35,7 @@ if (WIN32)
     )
 elseif(UNIX)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -o <TARGET>"
+        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -lm -o <TARGET>"
     )
 endif()
 

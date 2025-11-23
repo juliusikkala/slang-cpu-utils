@@ -37,6 +37,7 @@ static struct {
     std::vector<std::string> importedHeaders;
     std::vector<std::string> defines;
     std::vector<std::string> includePaths;
+    std::set<std::string> exportSymbols;
     std::vector<std::regex> unscopedEnums;
     std::vector<std::regex> removeCommonPrefixes;
     std::vector<std::regex> removeEnumCases;
@@ -64,6 +65,8 @@ Options:
 --rm-enum-prefix <regex>  removes a prefix from all enum cases if it's common to
                           all cases in the enum. For a regex, the longest
                           matching and present prefix is removed.
+--export-symbols <sym>    exports declarations with the given names even if they
+                          come from outside the input headers.
 --rm-enum-case <regex>    removes matching cases from all enums
 --fallback-prefix <str>   adds the given prefix to all enum case names that
                           would not be valid in Slang
@@ -177,6 +180,24 @@ bool parseOptions(int argc, const char** argv)
             else if (strcmp(arg, "call-shim") == 0)
             {
                 options.shimOutputPath = value;
+                i++;
+            }
+            else if (strcmp(arg, "export-symbols") == 0)
+            {
+                std::string sym;
+                for (int j = 0; ; ++j)
+                {
+                    char c = value[j];
+                    if (c == ',' || c == 0)
+                    {
+                        if (sym.size() != 0)
+                            options.exportSymbols.insert(sym);
+                        sym.clear();
+                        if (c == 0)
+                            break;
+                    }
+                    else sym += c;
+                }
                 i++;
             }
             else
@@ -596,6 +617,16 @@ bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
     return false;
 }
 
+bool isNameActive(clang::Decl* decl)
+{
+    clang::NamedDecl* named = clang::cast_or_null<clang::NamedDecl>(decl);
+    if (!named)
+        return false;
+
+    std::string name = named->getDeclName().getAsString();
+    return options.exportSymbols.count(name) != 0;
+}
+
 bool isLocationVisible(BindingContext& ctx, clang::SourceLocation loc)
 {
     auto& sourceManager = ctx.session->clang->getSourceManager();
@@ -675,7 +706,7 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
     {
         clang::TypedefNameDecl* decl = typedefType->getDecl();
         // Use typedef names if the decl is visible, those should exist.
-        if (isLocationVisible(ctx, decl->getLocation()))
+        if (isLocationVisible(ctx, decl->getLocation()) || isNameActive(decl))
             return decl->getName().str();
         // Otherwise, continue with the canonical type.
     }
@@ -1631,7 +1662,7 @@ bool SlangBindgen::HandleTopLevelDecl(clang::DeclGroupRef decl)
 {
     for (clang::Decl* singleDecl: decl)
     {
-        if (!isLocationActive(*ctx, singleDecl->getLocation()))
+        if (!isLocationActive(*ctx, singleDecl->getLocation()) && !isNameActive(singleDecl))
             continue;
         dumpDecl(*ctx, singleDecl, true);
     }

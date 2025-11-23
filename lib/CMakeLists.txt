@@ -8,48 +8,22 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Threads REQUIRED)
 
 add_custom_command(
-    OUTPUT ctypes.slang
-    DEPENDS 
-        ${CMAKE_CURRENT_SOURCE_DIR}/ctypes.h
-    COMMAND slang-bindgen
-        ${CMAKE_CURRENT_SOURCE_DIR}/ctypes.h
-        --output ctypes.slang
-        --namespace C
-    COMMENT "Generating ctypes.slang"
-)
-
-add_custom_command(
-    OUTPUT cconstants.slang
-    DEPENDS 
-        ${CMAKE_CURRENT_SOURCE_DIR}/cconstants.h
-    COMMAND slang-bindgen
-        ${CMAKE_CURRENT_SOURCE_DIR}/cconstants.h
-        --output cconstants.slang
-        --namespace C
-    COMMENT "Generating cconstants.slang"
-)
-
-add_custom_command(
     OUTPUT crt.slang
     DEPENDS 
-        ${CMAKE_CURRENT_SOURCE_DIR}/ctypes.h
         ${CMAKE_CURRENT_SOURCE_DIR}/crt.h
     COMMAND slang-bindgen
         ${CMAKE_CURRENT_SOURCE_DIR}/crt.h
-        --import ctypes
-        --imported ${CMAKE_CURRENT_SOURCE_DIR}/ctypes.h
         --output crt.slang
+        --export-symbols exit,malloc,realloc,free,memcpy,memset,strcmp,fopen,fclose,fread,fgetc,fwrite,ftell,fseek,FILE,stdout,stderr,stdin,time,difftime,clock,aligned_alloc,_aligned_alloc,_aligned_realloc,_aligned_free,timespec,thrd_sleep,timespec_get
         --namespace C
     COMMENT "Generating crt.slang"
 )
 
-add_custom_target(bindgen DEPENDS ctypes.slang crt.slang cconstants.slang)
+add_custom_target(bindgen DEPENDS crt.slang)
 
 add_slang_library(scul
     array.slang
     crt.slang
-    ctypes.slang
-    cconstants.slang
     drop.slang
     equal.slang
     hash.slang
@@ -64,7 +38,7 @@ add_slang_library(scul
     span.slang
     string.slang
     #thread.slang
-    #time.slang
+    time.slang
 )
 
 target_include_directories(scul PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
