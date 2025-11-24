@@ -617,14 +617,33 @@ bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
     return false;
 }
 
+std::optional<std::string> maybeGetName(clang::NamedDecl* decl)
+{
+    clang::DeclarationName name = decl->getDeclName();
+    if (name)
+        return name.getAsString();
+
+    clang::TagDecl* tag = clang::cast_or_null<clang::TagDecl>(decl);
+    if (tag)
+    {
+        clang::TypedefNameDecl* typedefName = tag->getTypedefNameForAnonDecl();
+        if (typedefName)
+            return typedefName->getNameAsString();
+    }
+
+    return {};
+}
+
 bool isNameActive(clang::Decl* decl)
 {
     clang::NamedDecl* named = clang::cast_or_null<clang::NamedDecl>(decl);
     if (!named)
         return false;
 
-    std::string name = named->getDeclName().getAsString();
-    return options.exportSymbols.count(name) != 0;
+    std::optional<std::string> name = maybeGetName(named);
+    if (!name.has_value())
+        return false;
+    return options.exportSymbols.count(*name) != 0;
 }
 
 bool isLocationVisible(BindingContext& ctx, clang::SourceLocation loc)
@@ -677,19 +696,6 @@ bool isUnscopedEnum(const std::string& enumName)
             return true;
     }
     return false;
-}
-
-std::optional<std::string> maybeGetName(clang::TagDecl* decl)
-{
-    clang::DeclarationName name = decl->getDeclName();
-    if (name)
-        return name.getAsString();
-
-    clang::TypedefNameDecl* typedefName = decl->getTypedefNameForAnonDecl();
-    if (typedefName)
-        return typedefName->getNameAsString();
-
-    return {};
 }
 
 std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)

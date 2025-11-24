@@ -28,3 +28,8 @@ static const int SeekEnd = SEEK_END;
 static const int SeekCur = SEEK_CUR;
 static const int SeekSet = SEEK_SET;
 static const int TimeUTC = TIME_UTC;
+
+
+static const int MutexPlain = mtx_plain;
+static const int MutexRecursive = mtx_recursive;
+static const int MutexTimed = mtx_timed;

@@ -8,14 +8,6 @@ public size_t strideof<T>() { return __naturalStrideOf<T>(); }
 [ForceInline]
 public size_t alignof<T>() { return __alignOf<T>(); }
 
-/*
-[ForceInline]
-public Ptr<void> takeFunctionPointer<T>(T fn)
-{
-    __intrinsic_asm "(void*)($0)";
-}
-*/
-
 public Ptr<void> clearBytes(Ptr<void> dest, uint8_t value, size_t n)
 {
     return C.memset(dest, value, n);
