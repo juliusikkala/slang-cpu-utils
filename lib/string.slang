@@ -349,6 +349,13 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     }
 
     [mutating]
+    public void appendByte(uint8_t c)
+    {
+        ensureNullTerminator();
+        _data.insert(getSize(), c);
+    }
+
+    [mutating]
     public void appendChar(uint32_t c)
     {
         ensureNullTerminator();

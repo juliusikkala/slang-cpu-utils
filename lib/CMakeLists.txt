@@ -34,6 +34,7 @@ add_slang_library(scul
     memory.slang
     panic.slang
     random.slang
+    serialization.slang
     sort.slang
     span.slang
     string.slang

@@ -11,14 +11,16 @@ public size_t strideof<T>() { return __naturalStrideOf<T>(); }
 [ForceInline]
 public size_t alignof<T>() { return __alignOf<T>(); }
 
-public Ptr<void> clearBytes(Ptr<void> dest, uint8_t value, size_t n)
+[ForceInline]
+public void clearBytes(Ptr<void> dest, uint8_t value, size_t n)
 {
-    return C.memset(dest, value, n);
+    __intrinsic_asm "call void @llvm.memset($0, $1, $2, i1 0)";
 }
 
-public Ptr<void> copyBytes(Ptr<void> dest, Ptr<void> src, size_t n)
+[ForceInline]
+public void copyBytes(Ptr<void> dest, Ptr<void> src, size_t n)
 {
-    return C.memcpy(dest, src, n);
+    __intrinsic_asm "call void @llvm.memcpy($0, $1, $2, i1 0)";
 }
 
 public void zeroInitialize<T>(inout T value)
