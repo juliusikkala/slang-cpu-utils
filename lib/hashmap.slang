@@ -4,6 +4,9 @@ import memory;
 import drop;
 import equal;
 
+namespace scul
+{
+
 public struct HashMap<K, T>: IDroppable
     where K: IHashable, IEqual
     where optional K: IDroppable
@@ -271,4 +274,6 @@ public struct HashMap<K, T>: IDroppable
                 remove(key);
         }
     }
+}
+
 }

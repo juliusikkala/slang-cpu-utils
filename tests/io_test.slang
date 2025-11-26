@@ -5,6 +5,8 @@ import panic;
 import list;
 import test;
 
+using scul;
+
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
     List<uint8_t> data;

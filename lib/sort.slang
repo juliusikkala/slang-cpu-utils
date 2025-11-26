@@ -2,6 +2,9 @@ import memory;
 import array;
 import span;
 
+namespace scul
+{
+
 //==============================================================================
 // VARIOUS SORTING PRIMITIVES
 //==============================================================================
@@ -255,4 +258,6 @@ public void radixSort<T: __BuiltinFloatingPointType, A: IRWBigArray<T>>(inout A 
 {
     FloatingPointKeyFunctor<T> key;
     radixSort<T, A, FloatingPointKeyFunctor<T>>(arr, key, sizeof(T) * 8);
+}
+
 }

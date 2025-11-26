@@ -1,5 +1,8 @@
 import crt;
 
+namespace scul
+{
+
 public void abort()
 {
     // Flush so that whatever was printed before abort is visible. It's annoying
@@ -12,4 +15,6 @@ public void panic<each T>(String format, expand each T args)
     // TODO: Make this print to stderr somehow and flush.
     printf(format, expand each args);
     abort();
+}
+
 }

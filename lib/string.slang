@@ -5,6 +5,9 @@ import span;
 import hash;
 import crt;
 
+namespace scul
+{
+
 public NativeString ptrToString<T>(Ptr<T> ptr)
 {
     // These bad boys are surprisingly hard to construct, since reinterpret<T>
@@ -448,4 +451,6 @@ public bool operator==(NativeString a, U8String b)
 public bool operator==(U8String a, U8String b)
 {
     return a.equals(b);
+}
+
 }

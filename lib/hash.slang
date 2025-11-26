@@ -1,3 +1,6 @@
+namespace scul
+{
+
 public uint64_t hashMix(uint64_t seed)
 {
     uint64_t h = seed;
@@ -89,4 +92,6 @@ public uint64_t fnv1a(Ptr<uint8_t> bytes, size_t count)
         h = h * 0x100000001b3llu;
     }
     return h;
+}
+
 }

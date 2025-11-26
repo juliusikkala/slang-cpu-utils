@@ -2,6 +2,9 @@ import memory;
 import drop;
 import crt;
 
+namespace scul
+{
+
 struct WorkerData<each T>
 {
     void* callback;
@@ -17,10 +20,6 @@ void* funcPtr<T>(T worker)
 {
     __intrinsic_asm "ret $0";
 }
-
-#ifdef SLANG_PLATFORM_WIN32
-// TODO
-#else
 
 __extern_cpp int workerDispatcher<each T>(void* data)
 {
@@ -97,4 +96,5 @@ public struct Mutex: IDroppable
             C.mtx_unlock(&mutex);
     }
 }
-#endif
+
+}

@@ -5,6 +5,8 @@ import memory;
 import thread;
 import test;
 
+using scul;
+
 struct WorkerData
 {
     Mutex mut;

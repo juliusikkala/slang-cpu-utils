@@ -3,6 +3,9 @@ import memory;
 import drop;
 import span;
 
+namespace scul
+{
+
 public struct List<T>: IRWBigArray<T>, IDroppable
     where optional T: IDroppable
 {
@@ -215,4 +218,6 @@ public struct List<T>: IRWBigArray<T>, IDroppable
         }
         _size = 0;
     }
+}
+
 }

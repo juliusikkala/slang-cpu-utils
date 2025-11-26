@@ -4,6 +4,9 @@ import list;
 import memory;
 import crt;
 
+namespace scul
+{
+
 public Optional<U8String> readLine()
 {
     U8String str;
@@ -86,4 +89,6 @@ public void writeTextFile(NativeString path, U8String data) throws IOError
 public void writeTextFile(NativeString path, NativeString data) throws IOError
 {
     try writeBinaryFile(path, stringToPtr<uint8_t>(data), data.length);
+}
+
 }

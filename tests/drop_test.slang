@@ -1,6 +1,8 @@
 import drop;
 import test;
 
+using scul;
+
 public struct Undroppable
 {
     public int count = 0;

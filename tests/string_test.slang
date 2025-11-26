@@ -2,6 +2,8 @@ import test;
 import drop;
 import string;
 
+using scul;
+
 void testParseInt(NativeString str, bool expectSuccess, int base, bool allowNegative, int64_t expectedValue=0, int expectedWidth=0)
 {
     int offset = 0;

@@ -1,5 +1,8 @@
 import crt;
 
+namespace scul
+{
+
 // sizeof() in Slang gives the size of a struct without trailing padding, but
 // we need to include the padding for memory allocations.
 [ForceInline]
@@ -146,4 +149,6 @@ public void deallocate<T, A:IAllocator>(Ptr<T> oldPtr, inout A alloc)
 public void deallocate<T>(Ptr<T> oldPtr)
 {
     defaultAllocator.deallocate(reinterpret<Ptr<void>>(oldPtr));
+}
+
 }

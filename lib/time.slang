@@ -1,5 +1,8 @@
 import crt;
 
+namespace scul
+{
+
 public struct TimeTicks
 {
     private uint64_t nsSinceStart;
@@ -92,14 +95,10 @@ public TimeTicks operator-(TimeTicks a, TimeTicks b)
 
 public void sleep(double seconds)
 {
-#ifdef WIN32
-    // TODO
-#else
     C.timespec ts;
     ts.tv_sec = int64_t(seconds);
     ts.tv_nsec = int64_t(frac(seconds) * 1e9);
     C.thrd_sleep(&ts, nullptr);
-#endif
 }
 
 public void sleep(TimeTicks ticks)
@@ -126,4 +125,6 @@ public TimeTicks getTicks()
         startTime = t;
     }
     return t-startTime;
+}
+
 }
