@@ -5,12 +5,20 @@ This repo is all about running Slang on CPUs: it's a collection of tools to
 streamline standalone [Slang](https://github.com/shader-slang/slang) application
 development.
 
-The tools are collected together like this, because they assume a common basis:
-[`platform.slang`](lib/platform.slang). This module maps C types to Slang
-equivalents to allow working with C bindings.
+The collection includes a **binding generator** which enables using C libraries
+in Slang, as well as a CMake toolchain to make standalone Slang development
+easier. There's also the Slang CPU Utility Library (SCUL) which aims to
+implement features which aren't available in the core modules of Slang but are
+useful for CPU applications. 
 
-All components of this library are MIT-0, so you can just use it without even
-crediting anyone. No warranties though. See [LICENSE](LICENSE) for details.
+The aim is to implement as much as possible in Slang. While C libraries for
+many of the things provided SCUL exist, the current goal is to have the C
+standard library be the only dependency, and perhaps one day not even that.
+Implementing everything in Slang is also an exercise in figuring out which areas
+of Slang need improvement.
+
+All components of this collection are MIT-0, so you can just use them without
+even crediting anyone. No warranties though. See [LICENSE](LICENSE) for details.
 
 ## Building
 
@@ -66,22 +74,24 @@ project(<yourprojectname> LANGUAGES Slang)
 Alternatively, you can add slang-cpu-utils as a submodule and adjust the
 `CMAKE_MODULE_PATH` to match your directory structure.
 
-## Binding generator (`bindgen`)
+## Binding generator (`bindgen-llvm`)
 
 This tool generates Slang bindings for C libraries, based on their headers. This
 allows you to seamlessly use C libraries in Slang. See [the readme for bindgen
-for more details.](bindgen/README.md).
+for more details.](bindgen-llvm/README.md).
 
 ## Utility library (`lib`)
 
 The utility library comes with various modules to ease CPU development with Slang:
 
 * `array.slang`: `IBigArray` and `IRWBigArray`, see [limitations section](#limitations-of-using-slang-on-cpu) for explanation.
+* `crt.slang`: Bindings to some C standard library functionality and types
 * `drop.slang`: `IDroppable` interface for "destructors" where caller doesn't need to know the type
 * `equal.slang`: `IEqual`, a subset of `IComparable` without ordering
 * `hash.slang`: utilities for computing hashes
 * `hashmap.slang`: a hash map (similar to `std::unordered_map`)
 * `hashset.slang`: a hash set (similar to `std::unordered_set`)
+* `image.slang`: basic image processing utilitie
 * `io.slang`: reading and writing files
 * `list.slang`: a dynamically sized array (similar to `std::vector`)
 * `memory.slang`: memory management utilities
@@ -137,10 +147,8 @@ Here's an assortment of issues or inconveniences you can currently expect when
 working with Slang on the CPU.
 
 * **No destructors**: use `defer myInstance.drop();` after creating the instance.
-* **No ownership & lifetimes**: related to above, there are no language constructs for tracking these.
-* **Transpilation through C++**: The compiler first translated Slang to C++, then invokes a C++ compiler to create a binary.
-* **Long-ish compile times**: inherited via C++ and a large-ish prelude.
-* **String pains**: The built-in `String` type is a somewhat opaque handle to an `Slang::String`. This causes "magical" non-Slang behavior like RAII and is generally quite limited. `NativeString` is a C string type. This library also introduces `U8String` as a Slang-native UTF8 string.
+* **No ownership & lifetimes**: related to above, there are no language constructs for tracking these *yet*.
+* **String pains**: The built-in `String` type is still very WIP and has very limited functionality. `NativeString` is a C string type. This library also introduces `U8String` as a Slang-native UTF8 string - it is very likely to be removed some time in the future, once String types are sorted out in Slang proper.
 * **`IArray` & `IRWArray`**: the size and index for these is an `int`, so they don't support arrays longer than 2147483647. This library introduces `IBigArray` & `IRWBigArray` to use `size_t` instead. `IArray` is extended to implement `IBigArray`, so you can use all the `IBigArray` functions with `IArray` as well.
-* **Funky function pointers**: as in, they don't really exist, but you can get them with some hacky template & intrinsic magic. See `thread.slang`. The fact that this works may actually be an oversight in the Slang compiler, but I hope it won't get "fixed".
+* **Funky function pointers**: as in, they don't really exist, but you can get them with some hacky generics & intrinsic magic. See `thread.slang`. The fact that this works may actually be an oversight in the Slang compiler, but I hope it won't get "fixed".
 * **`IComparable`:** requires being able to order the entries, it's not just equality. `IEqual` is introduced for supporting equality comparison only, which is useful when working with hash map keys.
