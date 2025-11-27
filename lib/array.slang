@@ -1,5 +1,8 @@
 // IBigArray & IRWBigArray exist because Slang's own IArray and IRWArray are
 // limited to 32-bit signed integer sizes, which is actually pretty small.
+namespace scul
+{
+
 public interface IBigArray<T>
 {
     size_t getSize();
@@ -53,4 +56,6 @@ public void copy<T, A: IBigArray<T>, B: IRWBigArray<T>>(inout A from, inout B to
     size_t count = min(from.getSize(), to.getSize());
     for (size_t i = 0; i < count; ++i)
         to[i] = from[i];
+}
+
 }

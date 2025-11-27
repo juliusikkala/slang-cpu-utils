@@ -3,12 +3,17 @@ import array;
 import drop;
 import span;
 import hash;
+import crt;
+import serialization;
+
+namespace scul
+{
 
 public NativeString ptrToString<T>(Ptr<T> ptr)
 {
     // These bad boys are surprisingly hard to construct, since reinterpret<T>
     // doesn't like NativeString.
-    __intrinsic_asm "((const char*)$0)";
+    __intrinsic_asm "ret $0";
 }
 
 public Ptr<T> stringToPtr<T>(NativeString ptr)
@@ -215,7 +220,7 @@ public int utf32ToUtf8(uint32_t c, inout uint8_t o[4])
     return 0;
 }
 
-public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
+public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable, ISerializable
 {
     private List<uint8_t> _data;
 
@@ -345,6 +350,13 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     }
 
     [mutating]
+    public void appendByte(uint8_t c)
+    {
+        ensureNullTerminator();
+        _data.insert(getSize(), c);
+    }
+
+    [mutating]
     public void appendChar(uint32_t c)
     {
         ensureNullTerminator();
@@ -427,11 +439,34 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     {
         return fnv1a(_data.data, getSize());
     }
+
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
+    {
+        try ar.write(length);
+        for (size_t i = 0; i < length; ++i)
+            try ar.write(_data[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
+        uint64_t len = 0;
+        try ar.read(len);
+        _data.resize(size_t(len)+1);
+        for (uint64_t i = 0; i < len; ++i)
+        {
+            uint8_t byte = 0;
+            try ar.read(byte);
+            _data[size_t(i)] = byte;
+        }
+        _data[size_t(len)] = 0;
+    }
 }
 
 public bool operator==(NativeString str, NativeString other)
 {
-    __intrinsic_asm "strcmp($0, $1) == 0";
+    return C.strcmp(str, other) == 0;
 }
 
 public bool operator==(U8String a, NativeString b)
@@ -447,4 +482,6 @@ public bool operator==(NativeString a, U8String b)
 public bool operator==(U8String a, U8String b)
 {
     return a.equals(b);
+}
+
 }
