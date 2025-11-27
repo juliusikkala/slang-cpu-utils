@@ -1,8 +1,3 @@
-import list;
-import string;
-import memory;
-import drop;
-
 namespace scul
 {
 
@@ -12,11 +7,33 @@ public enum SerializationError
     Input,
 };
 
-// This is a bit funky. The behavior of `serialize` depends on whether the
-// IArchive wants to save or load - serializable objects don't actually know
-// that! This allows one to write serialization code in one function that serves
-// both directions.
-public interface IArchive
+public interface IOutputStream
+{
+    [mutating]
+    internal void writeBuiltin(bool value) throws SerializationError;
+    [mutating]
+    internal void writeBuiltin<T: __BuiltinArithmeticType>(T value) throws SerializationError;
+    [mutating]
+    void write<S : ISerializable>(S value) throws SerializationError
+    {
+        try value.write(this);
+    }
+}
+
+public interface IInputStream
+{
+    [mutating]
+    internal void readBuiltin(inout bool value) throws SerializationError;
+    [mutating]
+    internal void readBuiltin<T: __BuiltinArithmeticType>(inout T value) throws SerializationError;
+    [mutating]
+    void read<S : ISerializable>(inout S value) throws SerializationError
+    {
+        try value.read(this);
+    }
+}
+
+public interface ISerializer
 {
     property bool output { get; }
 
@@ -24,209 +41,172 @@ public interface IArchive
     void serialize(inout bool value) throws SerializationError;
     [mutating]
     void serialize<T: __BuiltinArithmeticType>(inout T value) throws SerializationError;
+
     [mutating]
-    void serialize(inout U8String value) throws SerializationError;
+    void serialize<S : ISerializable>(inout S value) throws SerializationError;
+}
+
+public extension<T: IOutputStream> T : ISerializer
+{
+    property bool output { get { return true; } }
+
+    [mutating]
+    void serialize(inout bool value) throws SerializationError
+    {
+        try writeBuiltin(value);
+    }
+
+    [mutating]
+    void serialize<T: __BuiltinArithmeticType>(inout T value) throws SerializationError
+    {
+        try writeBuiltin(value);
+    }
 
     [mutating]
     void serialize<S : ISerializable>(inout S value) throws SerializationError
     {
-        try value.serialize(this);
+        try write(value);
+    }
+}
+
+public extension<T: IInputStream> T : ISerializer
+{
+    property bool output { get { return true; } }
+
+    [mutating]
+    void serialize(inout bool value) throws SerializationError
+    {
+        try readBuiltin(value);
     }
 
     [mutating]
-    void beginStruct() throws SerializationError {}
+    void serialize<T: __BuiltinArithmeticType>(inout T value) throws SerializationError
+    {
+        try readBuiltin(value);
+    }
+
     [mutating]
-    void endStruct() throws SerializationError {}
-    // If returns true, the caller should resize their array.
-    [mutating]
-    bool beginArray(inout uint64_t len) throws SerializationError;
-    [mutating]
-    void endArray() throws SerializationError {}
+    void serialize<S : ISerializable>(inout S value) throws SerializationError
+    {
+        try read(value);
+    }
 }
 
 public interface ISerializable
 {
     [mutating]
-    void serialize<A: IArchive>(inout A ar) throws SerializationError;
-}
-
-public struct BinaryOutputStream: IArchive, IDroppable
-{
-    List<uint8_t> _data;
-
-    property bool output { get { return true; } }
-
-    public __init()
+    void write<A: IOutputStream>(inout A ar) throws SerializationError
     {
-        _data = List<uint8_t>();
+        try serialize(ar);
     }
 
     [mutating]
-    void drop()
+    void read<A: IInputStream>(inout A ar) throws SerializationError
     {
-        _data.drop();
-    }
-
-    public property size_t size 
-    {
-        get { return _data.size; }
-    }
-
-    public property Ptr<uint8_t> data 
-    {
-        get { return _data.data; }
+        try serialize(ar);
     }
 
     [mutating]
-    void serialize(inout bool value) throws SerializationError
+    void serialize<A: ISerializer>(inout A ar) throws SerializationError
     {
-        _data.push(uint8_t(value ? 1 : 0));
-    }
-
-    [mutating]
-    void serialize<T: __BuiltinArithmeticType>(inout T value) throws SerializationError
-    {
-        let data = Ptr<uint8_t>(&value);
-        for (int i = 0; i < strideof<T>(); ++i)
-            _data.push(data[i]);
-    }
-
-    [mutating]
-    void serialize(inout U8String value) throws SerializationError
-    {
-        uint64_t size = value.length;
-        try serialize(size);
-        for (int i = 0; i < size; ++i)
-            _data.push(value[i]);
-    }
-
-    [mutating]
-    bool beginArray(inout uint64_t len) throws SerializationError
-    {
-        try serialize(len);
-        return false;
+        try ar.serialize(this);
     }
 }
 
-public struct BinaryInputStream: IArchive
+public extension bool: ISerializable
 {
-    size_t _head;
-    size_t _size;
-    Ptr<uint8_t> _data;
-
-    property bool output { get { return false; } }
-
-    public __init(size_t size, Ptr<uint8_t> data)
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
     {
-        _head = 0;
-        _size = size;
-        _data = data;
-    }
-
-    public property size_t size 
-    {
-        get { return _size - _head; }
-    }
-
-    public property Ptr<uint8_t> data 
-    {
-        get { return _data + _head; }
-    }
-
-    void ensureBytes(size_t bytes) throws SerializationError
-    {
-        if (size < bytes)
-            throw SerializationError.Input;
+        try ar.writeBuiltin(this);
     }
 
     [mutating]
-    void serialize(inout bool value) throws SerializationError
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
     {
-        try ensureBytes(1);
-        value = *data != 0;
-        _head += 1;
+        try ar.readBuiltin(this);
+    }
+}
+
+public extension<T : __BuiltinArithmeticType> T: ISerializable
+{
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
+    {
+        try ar.writeBuiltin<T>(this);
     }
 
     [mutating]
-    void serialize<T: __BuiltinArithmeticType>(inout T value) throws SerializationError
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
     {
-        try ensureBytes(strideof<T>());
-        copyBytes(Ptr<void>(&value), Ptr<void>(data), strideof<T>());
-        _head += strideof<T>();
-    }
-
-    [mutating]
-    void serialize(inout U8String value) throws SerializationError
-    {
-        value.clear();
-        uint64_t size;
-        try serialize(size);
-        try ensureBytes(size_t(size));
-        for (int i = 0; i < size; ++i)
-            value.appendByte(data[i]);
-        _head += size_t(size);
-    }
-
-    [mutating]
-    bool beginArray(inout uint64_t len) throws SerializationError
-    {
-        uint64_t oldLen = len;
-        try serialize(len);
-        return oldLen != len;
+        try ar.readBuiltin<T>(this);
     }
 }
 
 public extension<T : __BuiltinArithmeticType, let N:int> vector<T, N>: ISerializable
 {
     [mutating]
-    void serialize<A: IArchive>(inout A ar) throws SerializationError
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
     {
-        try ar.beginStruct();
+        for (int i = 0; i < N; ++i)
+            try ar.write(this[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
         for (int i = 0; i < N; ++i)
         {
-            T element = this[i];
-            try ar.serialize(element);
-            if (!ar.output)
-                this[i] = element;
+            T element;
+            try ar.read(element);
+            this[i] = element;
         }
-        try ar.endStruct();
     }
 }
 
 public extension<T : __BuiltinArithmeticType, let R : int, let C : int, let L : int> matrix<T, R, C, L> : ISerializable
 {
     [mutating]
-    void serialize<A: IArchive>(inout A ar) throws SerializationError
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
     {
-        try ar.beginStruct();
+        for (int i = 0; i < R; ++i)
+            try ar.write(this[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
         for (int i = 0; i < R; ++i)
         {
             var row = this[i];
-            try ar.serialize(row);
-            if (!ar.output)
-                this[i] = row;
+            try ar.read(row);
+            this[i] = row;
         }
-        try ar.endStruct();
     }
 }
 
 public extension<T : ISerializable> Optional<T>: ISerializable
 {
     [mutating]
-    void serialize<A: IArchive>(inout A ar) throws SerializationError
-    { 
-        bool hasValue = this.hasValue;
-        try ar.serialize(hasValue);
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
+    {
+        try ar.write(this.hasValue);
+        if (hasValue)
+            try ar.write(this.value);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
+        bool hasValue;
+        try ar.read(hasValue);
         if (hasValue)
         {
             T element = T();
-            if (ar.output)
-                element = this.value;
-
-            try ar.serialize(element);
-            if (!ar.output)
-                this = element;
+            try ar.read(element);
+            this = element;
         }
+        else this = none;
     }
 }
 

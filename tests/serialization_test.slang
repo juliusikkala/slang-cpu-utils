@@ -3,6 +3,7 @@ import list;
 import string;
 import panic;
 import serialization;
+import binarystream;
 
 using scul;
 
@@ -12,14 +13,18 @@ struct Foo : ISerializable
     int level;
     U8String name;
     float3 direction;
+    Optional<int> a;
+    Optional<int> b;
 
     [mutating]
-    void serialize<A: IArchive>(inout A ar) throws SerializationError
+    override void serialize<A: ISerializer>(inout A ar) throws SerializationError
     {
         try ar.serialize(isCool);
         try ar.serialize(level);
         try ar.serialize(name);
         try ar.serialize(direction);
+        try ar.serialize(a);
+        try ar.serialize(b);
     }
 }
 
@@ -31,6 +36,9 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     first.name = U8String("Wow!");
     defer first.name.drop();
     first.direction = normalize(float3(1,2,3));
+
+    first.a = 16;
+    first.b = none;
 
     BinaryOutputStream output;
     defer output.drop();
@@ -44,7 +52,7 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
         panic("output serialize");
     }
 
-    test(output.size == 1+4+8+4+4*3, "output size");
+    test(output.size == 1+4+8+4+4*3+5+1, "output size");
 
     BinaryInputStream input = BinaryInputStream(output.size, output.data);
 
@@ -64,6 +72,8 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
     test(first.level == second.level, "int");
     test(first.name == second.name, "U8String");
     test(all(first.direction == second.direction), "float3");
+    test(first.a.value == second.a.value, "optional 1");
+    test(!first.b.hasValue && !second.b.hasValue, "optional 2");
 
     return 0;
 }

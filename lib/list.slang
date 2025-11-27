@@ -2,12 +2,13 @@ import array;
 import memory;
 import drop;
 import span;
+import serialization;
 
 namespace scul
 {
 
 public struct List<T>: IRWBigArray<T>, IDroppable
-    where optional T: IDroppable
+    where optional T: scul.IDroppable
 {
     Ptr<T> _data;
     size_t _capacity;
@@ -217,6 +218,32 @@ public struct List<T>: IRWBigArray<T>, IDroppable
             }
         }
         _size = 0;
+    }
+}
+
+public extension<T: scul.ISerializable> List<T>: scul.ISerializable
+    where optional T: scul.IDroppable
+{
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
+    {
+        try ar.write(uint64_t(size));
+        for (size_t i = 0; i < size; ++i)
+            try ar.write(_data[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
+        uint64_t newSize;
+        try ar.read(newSize);
+        resize(size_t(newSize));
+        for (uint64_t i = 0; i < newSize; ++i)
+        {
+            T value = T();
+            try ar.read(value);
+            _data[size_t(i)] = value;
+        }
     }
 }
 

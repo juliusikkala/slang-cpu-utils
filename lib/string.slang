@@ -4,6 +4,7 @@ import drop;
 import span;
 import hash;
 import crt;
+import serialization;
 
 namespace scul
 {
@@ -219,7 +220,7 @@ public int utf32ToUtf8(uint32_t c, inout uint8_t o[4])
     return 0;
 }
 
-public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
+public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable, ISerializable
 {
     private List<uint8_t> _data;
 
@@ -437,6 +438,29 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     public uint64_t hash()
     {
         return fnv1a(_data.data, getSize());
+    }
+
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
+    {
+        try ar.write(length);
+        for (size_t i = 0; i < length; ++i)
+            try ar.write(_data[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
+        uint64_t len = 0;
+        try ar.read(len);
+        _data.resize(size_t(len)+1);
+        for (uint64_t i = 0; i < len; ++i)
+        {
+            uint8_t byte = 0;
+            try ar.read(byte);
+            _data[size_t(i)] = byte;
+        }
+        _data[size_t(len)] = 0;
     }
 }
 
