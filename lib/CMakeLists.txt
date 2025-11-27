@@ -14,7 +14,7 @@ add_custom_command(
     COMMAND slang-bindgen
         ${CMAKE_CURRENT_SOURCE_DIR}/crt.h
         --output crt.slang
-        --export-symbols exit,malloc,realloc,free,memcpy,memset,strcmp,fopen,fclose,fread,fgetc,fwrite,ftell,fseek,FILE,stdout,stderr,stdin,time,difftime,clock,aligned_alloc,_aligned_alloc,_aligned_realloc,_aligned_free,timespec,thrd_sleep,timespec_get,thrd_t,thrd_create,thrd_join,mtx_t,mtx_init,mtx_lock,mtx_trylock,mtx_unlock,mtx_destroy,mtx_plain,mtx_recursive,mtx_timed
+        --export-symbols exit,malloc,realloc,free,memcpy,memset,strcmp,fopen,fclose,fread,fgetc,fwrite,ftell,fseek,FILE,stdout,stderr,stdin,time,difftime,clock,aligned_alloc,_aligned_alloc,_aligned_realloc,_aligned_free,timespec,thrd_sleep,timespec_get,thrd_t,thrd_create,thrd_join,mtx_t,mtx_init,mtx_lock,mtx_trylock,mtx_unlock,mtx_destroy,mtx_plain,mtx_recursive,mtx_timed,strlen
         --namespace C
     COMMENT "Generating crt.slang"
 )
@@ -23,12 +23,14 @@ add_custom_target(bindgen DEPENDS crt.slang)
 
 add_slang_library(scul
     array.slang
+    binarystream.slang
     crt.slang
     drop.slang
     equal.slang
     hash.slang
     hashmap.slang
     hashset.slang
+    image.slang
     io.slang
     list.slang
     memory.slang
