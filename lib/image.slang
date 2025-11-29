@@ -14,6 +14,7 @@ public interface IPixelFormat
     static This fromFloat(float4 value);
 }
 
+// TODO: These conversions are fairly untested.
 float channelDataToFloat<T: __BuiltinArithmeticType>(T pixelData)
 {
     if (T is half)

@@ -10,6 +10,7 @@ function(test name)
 endfunction()
 
 test(array_test)
+test(csv_test)
 test(drop_test)
 test(hash_test)
 test(hashmap_test)

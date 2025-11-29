@@ -25,6 +25,7 @@ add_slang_library(scul
     array.slang
     binarystream.slang
     crt.slang
+    csv.slang
     drop.slang
     equal.slang
     hash.slang
