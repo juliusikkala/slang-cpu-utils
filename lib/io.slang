@@ -17,7 +17,7 @@ public Optional<U8String> readLine()
         c = C.fgetc(C.stdin);
         if (c < 0) // EOF
         {
-            if (str.length == 0)
+            if (str.len == 0)
                 return none;
             break;
         }
