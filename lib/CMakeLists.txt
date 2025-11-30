@@ -24,6 +24,7 @@ add_custom_target(bindgen DEPENDS crt.slang)
 add_slang_library(scul
     array.slang
     binarystream.slang
+    color.slang
     crt.slang
     csv.slang
     drop.slang
@@ -35,6 +36,7 @@ add_slang_library(scul
     io.slang
     list.slang
     memory.slang
+    optimization.slang
     panic.slang
     random.slang
     serialization.slang

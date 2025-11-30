@@ -78,6 +78,12 @@ public struct SimplePixelFormat<T: __BuiltinArithmeticType, let N: int>: IPixelF
         data = value;
     }
 
+    public __init(vector<T, N> value)
+    {
+        for (int i = 0; i < N; ++i)
+            data[i] = value[i];
+    }
+
     public property uint channels { get { return N; } }
     public __subscript(uint c) -> T { get { return data[c]; } set { data[c] = newValue; } }
 
@@ -313,8 +319,28 @@ public void saveBMP<let ChannelCount: int>(
             for(uint x = 0; x < img.size.x; ++x)
             {
                 let pixel = img[x, flippedY];
-                for(uint c = 0; c < ChannelCount; ++c)
-                    try stream.write(pixel[c]);
+                if (ChannelCount == 1)
+                {
+                    try stream.write(pixel[0]);
+                }
+                else if (ChannelCount == 2)
+                {
+                    try stream.write(pixel[1]);
+                    try stream.write(pixel[0]);
+                }
+                else if (ChannelCount == 3)
+                {
+                    try stream.write(pixel[2]);
+                    try stream.write(pixel[1]);
+                    try stream.write(pixel[0]);
+                }
+                else if (ChannelCount == 4)
+                {
+                    try stream.write(pixel[2]);
+                    try stream.write(pixel[1]);
+                    try stream.write(pixel[0]);
+                    try stream.write(pixel[3]);
+                }
             }
 
             for(uint i = 0; i < padding; ++i)
