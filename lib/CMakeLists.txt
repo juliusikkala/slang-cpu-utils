@@ -29,6 +29,7 @@ add_slang_library(scul
     csv.slang
     drop.slang
     equal.slang
+    geometry.slang
     hash.slang
     hashmap.slang
     hashset.slang
