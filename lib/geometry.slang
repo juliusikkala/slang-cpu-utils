@@ -303,6 +303,7 @@ public struct AABB<let D: int>: IHyperSurface<D>, IVolume<D>
 
     public struct IntersectedPoint: ISurfacePoint<D, This>
     {
+        public int face;
         public vector<float, D> pos;
         public vector<float, D> getPosition(AABB<D> s)
         {
@@ -311,26 +312,9 @@ public struct AABB<let D: int>: IHyperSurface<D>, IVolume<D>
 
         public vector<float, D> getNormal(AABB<D> s)
         {
-            let uv = (pos - s.minBound) / (s.maxBound - s.minBound);
-
-            float minUv = uv[0];
-            float maxUv = uv[0];
-            [ForceUnroll]
-            for (int i = 1; i < D; ++i)
-            {
-                minUv = min(minUv, uv[i]);
-                maxUv = max(maxUv, uv[i]);
-            }
-
-            float extremeUv = minUv < 1-maxUv ? minUv : maxUv;
-            int chosenAxis = 0;
-            int chosenSign = extremeUv == minUv ? -1 : 1;
-            [ForceUnroll]
-            for (int i = 1; i < D; ++i)
-            {
-                if (uv[i] == extremeUv)
-                    chosenAxis = i;
-            }
+            let uv = (pos - s.minBound) / s.edges;
+            int chosenAxis = face % D;
+            int chosenSign = face < D ? -1 : 1;
             var normal = vector<float, D>(0);
             normal[chosenAxis] = chosenSign;
             return normal;
@@ -338,26 +322,10 @@ public struct AABB<let D: int>: IHyperSurface<D>, IVolume<D>
 
         public vector<float, D-1> getMapping(AABB<D> s)
         {
-            let uv = (pos - s.minBound) / (s.maxBound - s.minBound);
+            let uv = (pos - s.minBound) / s.edges;
+            int chosenAxis = face % D;
+            int chosenSign = face < D ? -1 : 1;
 
-            float minUv = uv[0];
-            float maxUv = uv[0];
-            [ForceUnroll]
-            for (int i = 1; i < D; ++i)
-            {
-                minUv = min(minUv, uv[i]);
-                maxUv = max(maxUv, uv[i]);
-            }
-
-            float extremeUv = minUv < 1-maxUv ? minUv : maxUv;
-            int chosenAxis = 0;
-            int chosenSign = extremeUv == minUv ? -1 : 1;
-            [ForceUnroll]
-            for (int i = 1; i < D; ++i)
-            {
-                if (uv[i] == extremeUv)
-                    chosenAxis = i;
-            }
             vector<float, D-1> mapping;
             [ForceUnroll]
             for (int i = 0; i < D-1; ++i)
@@ -365,6 +333,40 @@ public struct AABB<let D: int>: IHyperSurface<D>, IVolume<D>
             mapping[0] += chosenAxis + (chosenSign < 0 ? 0 : 3);
             return mapping;
         }
+    }
+
+    public override Optional<IntersectedPoint> intersect(
+        vector<float, D> origin,
+        vector<float, D> dir,
+        vector<float, D> invDir,
+        float tmin,
+        float tmax)
+    {
+        let t0 = (minBound - origin) * invDir;
+        let t1 = (maxBound - origin) * invDir;
+        let mins = min(t0,t1);
+        let maxs = max(t0,t1);
+        float near = mins[0];
+        float far = maxs[0];
+        [ForceUnroll]
+        for (int i = 1; i < D; ++i)
+        {
+            near = max(near, mins[i]);
+            far = min(far, maxs[i]);
+        }
+        if(near <= far && far > tmin && near < tmax)
+        {
+            float t = near > tmin ? near : far;
+            int face = 0;
+            [ForceUnroll]
+            for (int i = 0; i < D; ++i)
+            {
+                if (t == t0[i]) face = i;
+                if (t == t1[i]) face = i+D;
+            }
+            return IntersectedPoint(face, origin + t * dir);
+        }
+        return none;
     }
 
     private float2 intersectionCandidates(
@@ -385,24 +387,6 @@ public struct AABB<let D: int>: IHyperSurface<D>, IVolume<D>
             far = min(far, maxs[i]);
         }
         return float2(near, far);
-    }
-
-    public override Optional<IntersectedPoint> intersect(
-        vector<float, D> origin,
-        vector<float, D> dir,
-        vector<float, D> invDir,
-        float tmin,
-        float tmax)
-    {
-        float2 nf = intersectionCandidates(origin, dir, invDir);
-        float near = nf.x;
-        float far = nf.y;
-        if(near <= far && far > tmin && near < tmax)
-        {
-            float t = near > tmin ? near : far;
-            return IntersectedPoint(origin + t * dir);
-        }
-        return none;
     }
 
     public override Optional<float> intersectDist(
