@@ -1,6 +1,23 @@
 namespace scul
 {
 
+public float blackbody(float kTemperature, float nmWavelength)
+{
+    float l = 1.5304336773e-06 * nmWavelength;
+    float l2 = l*l;
+    float l5 = l2*l2*l;
+    return rcp(l5*(exp2(31.7674607818 / (l*kTemperature)) - 1));
+}
+
+// Peak = 1
+public float normalizedBlackbody(float kTemperature, float nmWavelength)
+{
+    float t = 1.2802052515e-07 * nmWavelength * kTemperature;
+    float t2 = t*t;
+    float t5 = t2*t2*t;
+    return rcp(t5*(exp2(2.6573428645 / t) - 1.0));
+}
+
 public float3 powerLawEOTF(float3 nonlinearSRGB, float power = 2.2)
 {
     return pow(nonlinearSRGB, power);
@@ -14,49 +31,97 @@ public float3 powerLawOETF(float3 linearSRGB, float power = 2.2)
 namespace XYZ
 {
     // This color matching function is based on the 2006 CIE XYZ standard
-    // observer. These analytic approximations are based on the approach from
-    // "Simple Analytic Approximations to the CIE XYZ Color Matching Functions",
-    // 2013, Wyman et al. https://jcgt.org/published/0002/02/01/
-    // The values have been fit for the 2006 LMS, `exp` has been replaced with
-    // `exp2` and parts have been reformulated as multiply-adds.
+    // observer. It is an analytic approximation, based on:
+    //
+    // "Chromaticity Preserving Analytic Approximations to the CIE Color Matching Functions",
+    // 2025, Thomas Puls https://jcgt.org/published/0014/01/01/paper.pdf
+    //
+    // Particularly, the loss computation follows [2]. This allows for a fairly
+    // accurate fit that avoids color shifting issues.
+    //
+    // I know it looks like it's doing a lot, but it's actually mostly just
+    // FMA operations, which are generally really cheap to compute. Avoiding
+    // excess exp2 and rsqrt calls is far more important than reducing the
+    // number of FMA calls; see
+    // https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html#throughput-of-native-arithmetic-instructions
+    // as banana for scale. The maximum throughput of FMA is 8 times that of
+    // exp2 & rsqrt & division, and this function does exactly 4 costly
+    // operations. Everything else is all FMA.
     public float3 colorMatching(float nmWavelength)
     {
-        // Vector ops are only used to group similar operations together; this
-        // should have no performance benefit on GPUs. On CPUs, this may
-        // occasionally be helpful by making the SLP vectorizer's job more obvious.
-        float3 xl = 
-            nmWavelength *
-            float3(0.0441311400, 0.0309176439, 0.0226333433) +
-            float3(-19.5313351307, -15.4037794413, -13.5977664676);
-        float4 yzl = 
-            nmWavelength *
-            float4(0.0146988109, 0.0438508950, 0.0473006696, 0.0835678744) +
-            float4(-8.4914035797, -23.4908313751, -21.0235350314, -35.3313406769);
-        float3 xt = 
-            (xl*xl) *
-            select(xl<0, float3(-1), float3(-0.0410610477, -1.2071651668, -1.1243407493)) +
-            float3(-1.3655766440, -1.5721567877, 0.0488937785);
-        float4 yzt = 
-            (yzl*yzl) *
-            select(yzl<0, float4(-1), float4(-2.3044874668, -0.2456761897, -0.4601937151, -0.0678942731)) +
-            float4(-0.5015742183, -1.3757036924, 0.5974377211, -1.1005945318);
+        float l = 0.004545454545454545 * nmWavelength - 2.5318181818181817;
 
-        float3 xe = exp2(xt);
-        float4 yze = exp2(yzt);
-        return float3(
-            xe.x-xe.y+xe.z,
-            yze.x+yze.y,
-            yze.z+yze.w
-        );
+        float y;
+        {
+            float num = 0.1301275*l + 1.00245928e-01;
+            num = num*l + 9.57561402e-03;
+            num = num*l + -1.38932987e-03;
+            num = num*l + 8.37894528e-03;
+            num = num*l + 2.74830341e-03;
+
+            float denom = l + 1.47507955;
+            denom = denom * l + 7.25887155e-01;
+            denom = denom * l + 1.68454073e-01;
+            denom = denom * l + 1.34359038e-01;
+            denom = denom * l + 1.17288495e-01;
+            denom = denom * l + 4.96394646e-02;
+            denom = denom * l + 1.24815140e-02;
+            denom = denom * l + 2.43539194e-03;
+            denom = denom * l + 3.79132912e-04;
+            denom = denom * l + 3.12008180e-05;
+
+            y = num*rsqrt(denom) + 0.1484435;
+        }
+
+        float z;
+        {
+            float num = -0.4076485*l + -0.35095361;
+            num = num*l + -0.1331233;
+            num = num*l + -0.0180628;
+
+            float denom = l + 1.71743649;
+            denom = denom*l + 1.39074655;
+            denom = denom*l + 0.65230375;
+            denom = denom*l + 0.18359156;
+            denom = denom*l + 0.02887253;
+            denom = denom*l + 0.00197652;
+
+            z = num*rsqrt(denom) + 0.4076485;
+        }
+
+        float sum;
+        {
+            float n1 = -1.45387399e+03 * l + 4.79802283e+03;
+            n1 = n1*l + -5.08758577e+03;
+            n1 = n1*l + 9.83598255e+02;
+            n1 = n1*l + 1.42460683e+03;
+            n1 = n1*l + -6.27295111e+02;
+            n1 = n1*l + -8.05333092e+01;
+            n1 = n1*l + 3.70651841e+01;
+            n1 = n1*l + -1.13196450e+01;
+            n1 = n1*l + 2.85970242;
+            n1 = n1*l + 6.52507271e-01;
+
+            float n2 = -1.59139682e+03*l + -3.22209280e+03;
+            n2 = n2*l + -2.20605442e+03;
+            n2 = n2*l + -3.60207361e+02;
+            n2 = n2*l + 1.50810052e+02;
+            n2 = n2*l + 2.34086691e+01;
+            n2 = n2*l + -7.78294776;
+
+            sum = exp2(n1) + exp2(n2);
+        }
+
+        return float3((1-y-z)*sum, y*sum, z*sum);
     }
 
-    float3 toxyY(float3 xyz)
+    public float3 toxyY(float3 xyz)
     {
         float invSum = 1.0/(xyz.x+xyz.y+xyz.z);
         return float3(xyz.x*invSum, xyz.y*invSum, xyz.y);
     }
 
-    float3 fromxyY(float3 xyY)
+    public float3 fromxyY(float3 xyY)
     {
         float sum = xyY.z/xyY.y;
         return float3(xyY.x*sum, xyY.z, sum*(1-xyY.x-xyY.y));

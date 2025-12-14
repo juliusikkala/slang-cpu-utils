@@ -236,7 +236,7 @@ public struct Image2D<T: IPixelFormat>: IImage2D, IDroppable
     {
         if (any(p >= _size))
             panic("Index out of range: (%u, %u), image size: (%u, %u)\n", p.x, p.y, _size.x, _size.y);
-        return p.x + p.y * _size.y;
+        return p.x + p.y * _size.x;
     }
 
     public property uint2 size { get { return _size; } }
