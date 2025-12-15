@@ -24,18 +24,20 @@ add_custom_target(bindgen DEPENDS crt.slang)
 add_slang_library(scul
     array.slang
     binarystream.slang
+    bmp.slang
     color.slang
     crt.slang
     csv.slang
     drop.slang
     equal.slang
-    geometry.slang
+    geometry3.slang
     hash.slang
     hashmap.slang
     hashset.slang
     image.slang
     io.slang
     list.slang
+    mapping.slang
     memory.slang
     optimization.slang
     panic.slang
