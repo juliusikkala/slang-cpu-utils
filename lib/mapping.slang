@@ -46,4 +46,14 @@ public float3 uhcToBallUniform(float3 u)
     return pow(u.z, 1.0/3.0) * d;
 }
 
+public float2 uhcToBarycentric(float2 u)
+{
+    float2 b;
+    b.x = min(u.x, u.y) * 0.5;
+    b.y = max(u.x, u.y) - b.x;
+    if (u.x > u.y)
+        b.xy = b.yx;
+    return b;
+}
+
 }

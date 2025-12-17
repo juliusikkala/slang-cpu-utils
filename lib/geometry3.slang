@@ -9,6 +9,11 @@ public struct Ray3
     public float3 direction;
 }
 
+public interface IBoundedShape<T>
+{
+    public void computeBounds(out T boundShape);
+}
+
 public interface ISurfacePoint<T>
 {
     public float3 getPosition(T s);
@@ -25,7 +30,6 @@ public interface ISurface
     // Mandatory members
     //==========================================================================
     public property float area { get; }
-    public property AABB3 bounds { get; }
 
     // The variety of point types are used to only return the minimal amount
     // of information that can be used to reconstruct more complex aspects
@@ -41,7 +45,7 @@ public interface ISurface
 
     public MappedPoint getMappedPoint(float2 mapping);
 
-    public Optional<IntersectedPoint> intersect(
+    public Optional<Tuple<IntersectedPoint, float>> intersect(
         float3 rayOrigin,
         float3 rayDir,
         float3 rayInvDir,
@@ -62,7 +66,7 @@ public interface ISurface
         let sp = intersect(rayOrigin, rayDir, rayInvDir, tmin, tmax);
         if (!sp.hasValue)
             return none;
-        return distance(rayOrigin, sp.value.getPosition(this));
+        return sp.value._1;
     }
 
     public bool intersectBool(
@@ -75,7 +79,7 @@ public interface ISurface
         return intersectDist(rayOrigin, rayDir, rayInvDir, tmin, tmax).hasValue;
     }
 
-    public Optional<IntersectedPoint> intersect(Ray3 ray, float tmin = 0, float tmax = float.maxValue)
+    public Optional<Tuple<IntersectedPoint, float>> intersect(Ray3 ray, float tmin = 0, float tmax = float.maxValue)
     {
         return intersect(ray.origin, ray.direction, rcp(ray.direction), tmin, tmax);
     }
@@ -101,7 +105,7 @@ public interface IVolume
     public property float volume { get; }
 }
 
-public struct AABB3: ISurface, IVolume
+public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
 {
     public float3 minBound;
     public float3 maxBound;
@@ -172,7 +176,11 @@ public struct AABB3: ISurface, IVolume
             return e.x*e.y*e.z;
         }
     }
-    public property AABB3 bounds { get { return this; } }
+
+    public void computeBounds(out AABB3 bounds)
+    {
+        bounds = this;
+    }
 
     public struct MappedPoint: ISurfacePoint<This>
     {
@@ -315,7 +323,7 @@ public struct AABB3: ISurface, IVolume
         }
     }
 
-    public override Optional<IntersectedPoint> intersect(
+    public override Optional<Tuple<IntersectedPoint, float>> intersect(
         float3 rayOrigin,
         float3 rayDir,
         float3 rayInvDir,
@@ -337,7 +345,8 @@ public struct AABB3: ISurface, IVolume
             else if (t == t1.x) face = 3;
             else if (t == t1.y) face = 4;
             else if (t == t1.z) face = 5;
-            return IntersectedPoint(face, rayOrigin + t * rayDir);
+            return makeTuple(
+                IntersectedPoint(face, rayOrigin + t * rayDir), t);
         }
         return none;
     }
@@ -387,9 +396,7 @@ public struct AABB3: ISurface, IVolume
     }
 }
 
-// TODO: Triangle, TriangleMesh (only after BVH exists)
-
-public struct Sphere: ISurface, IVolume
+public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
 {
     public float3 origin;
     public float radius;
@@ -408,11 +415,9 @@ public struct Sphere: ISurface, IVolume
         }
     }
 
-    public property AABB3 bounds
+    public void computeBounds(out AABB3 bounds)
     {
-        get {
-            return AABB3(origin-radius, origin+radius);
-        }
+        bounds = AABB3(origin-radius, origin+radius);
     }
 
     public struct SampledPoint: ISurfacePoint<This>
@@ -484,13 +489,7 @@ public struct Sphere: ISurface, IVolume
         }
     }
 
-    private Optional<float2> intersectionCandidates(
-        float3 rayOrigin,
-        float3 rayDir
-    ){
-    }
-
-    public Optional<IntersectedPoint> intersect(
+    public Optional<Tuple<IntersectedPoint, float>> intersect(
         float3 rayOrigin,
         float3 rayDir,
         float3 rayInvDir,
@@ -499,7 +498,7 @@ public struct Sphere: ISurface, IVolume
     {
         Optional<float> t = intersectDist(rayOrigin, rayDir, rayInvDir);
         if (!t.hasValue) return none;
-        return IntersectedPoint(rayOrigin + t.value * rayDir);
+        return makeTuple(IntersectedPoint(rayOrigin + t.value * rayDir), t.value);
     }
 
     public override Optional<float> intersectDist(
@@ -528,7 +527,7 @@ public struct Sphere: ISurface, IVolume
         else if (far < tmax)
             t = far;
         else return none;
-
+        return t;
     }
 
     public override bool intersectBool(
@@ -563,5 +562,232 @@ public struct Sphere: ISurface, IVolume
         jacobian = volume;
     }
 }
+
+public struct Triangle3: ISurface, IBoundedShape<AABB3>
+{
+    public float3 vertices[3];
+
+    public property float area
+    {
+        get {
+            return length(cross(vertices[0]-vertices[1], vertices[0]-vertices[2])) * 0.5;
+        }
+    }
+
+    public void computeBounds(out AABB3 bounds)
+    {
+        bounds = AABB3(
+            min(min(vertices[0],vertices[1]),vertices[2]),
+            max(max(vertices[0],vertices[1]),vertices[2])
+        );
+    }
+
+    public struct MappedPoint: ISurfacePoint<This>
+    {
+        public float2 barycoords;
+        public float3 getPosition(Triangle3 s)
+        {
+            return
+                barycoords.x * s.vertices[0] +
+                barycoords.y * s.vertices[1] +
+                (1.0-barycoords.x-barycoords.y) * s.vertices[2];
+        }
+
+        public float3 getNormal(Triangle3 s)
+        {
+            float3 e1 = s.vertices[1] - s.vertices[0];
+            float3 e2 = s.vertices[2] - s.vertices[0];
+            return normalize(cross(e1, e2));
+        }
+
+        public float2 getMapping(Triangle3 s)
+        {
+            return barycoords;
+        }
+    }
+    public typealias SampledPoint = MappedPoint;
+
+    public SampledPoint sampleSurface(float2 s, out float jacobian)
+    {
+        jacobian = area;
+        return MappedPoint(uhcToBarycentric(s));
+    }
+
+    public MappedPoint getMappedPoint(float2 mapping)
+    {
+        return MappedPoint(mapping);
+    }
+
+    // Based on "Watertight Ray/Triangle Intersection" by Woop et al. 2013.
+    // https://jcgt.org/published/0002/01/05/paper.pdf
+    public void preprocessRayForIntersection(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir,
+        out float3 M,
+        out int axis
+    ){
+        float3 absdir = abs(rayDir);
+        float x, y, invZ;
+
+        if(absdir.x > absdir.y && absdir.x > absdir.z)
+        {
+            axis = 0;
+            x = rayDir.z;
+            y = rayDir.y;
+            invZ = rayInvDir.x;
+        }
+        else if(absdir.y > absdir.z)
+        {
+            axis = 1;
+            x = rayDir.x;
+            y = rayDir.z;
+            invZ = rayInvDir.y;
+        }
+        else
+        {
+            axis = 2;
+            x = rayDir.x;
+            y = rayDir.y;
+            invZ = rayInvDir.z;
+        }
+        M = float3(-x * invZ, -y * invZ, invZ);
+    }
+
+    public struct IntersectedPoint: ISurfacePoint<This>
+    {
+        public float2 barycoords;
+        public bool backFace;
+        public float3 getPosition(Triangle3 s)
+        {
+            return
+                barycoords.x * s.vertices[0] +
+                barycoords.y * s.vertices[1] +
+                (1.0-barycoords.x-barycoords.y) * s.vertices[2];
+        }
+
+        public float3 getNormal(Triangle3 s)
+        {
+            float3 e1 = s.vertices[1] - s.vertices[0];
+            float3 e2 = s.vertices[2] - s.vertices[0];
+            return normalize(cross(e1, e2));
+        }
+
+        public float2 getMapping(Triangle3 s)
+        {
+            return barycoords;
+        }
+    }
+
+    private void intersectTransform(
+        float3 rayOrigin,
+        float3 M,
+        int axis,
+        out float3 x,
+        out float3 y,
+        out float3 z
+    ){
+        float3 A = vertices[0] - rayOrigin;
+        float3 B = vertices[1] - rayOrigin;
+        float3 C = vertices[2] - rayOrigin;
+
+        if(axis == 0)
+        {
+            x = float3(A.z, B.z, C.z);
+            y = float3(A.y, B.y, C.y);
+            z = float3(A.x, B.x, C.x);
+        }
+        else if(axis == 1)
+        {
+            x = float3(A.x, B.x, C.x);
+            y = float3(A.z, B.z, C.z);
+            z = float3(A.y, B.y, C.y);
+        }
+        else
+        {
+            x = float3(A.x, B.x, C.x);
+            y = float3(A.y, B.y, C.y);
+            z = float3(A.z, B.z, C.z);
+        }
+
+        x = x + M.x * z;
+        y = y + M.y * z;
+    }
+
+    public Optional<Tuple<IntersectedPoint, float>> intersectFast(
+        float3 rayOrigin,
+        float3 M,
+        int axis,
+        float tmin = 0,
+        float tmax = float.maxValue)
+    {
+        float3 x, y, z;
+        intersectTransform(rayOrigin, M, axis, x, y, z);
+
+        float3 uvw = cross(y, x);
+        float det = uvw.x + uvw.y + uvw.z;
+        float invDet = rcp(det);
+        float2 bary = uvw.xy * invDet;
+        float t = M.z * dot(uvw, z) * invDet;
+
+        bool backFace = det < 0;
+        if(M.z < 0) backFace = !backFace;
+        if(axis != 2) backFace = !backFace;
+
+        bool3 less = uvw < 0;
+        if (det == 0.0 || t < tmin || t > tmax || less.x != less.y || less.y != less.z)
+            return none;
+        return makeTuple(IntersectedPoint(bary, backFace), t);
+    }
+
+    public bool intersectBoolFast(
+        float3 rayOrigin,
+        float3 M,
+        int axis,
+        float tmin = 0,
+        float tmax = float.maxValue)
+    {
+        float3 x, y, z;
+        intersectTransform(rayOrigin, M, axis, x, y, z);
+
+        float3 uvw = cross(y, x);
+        float det = uvw.x + uvw.y + uvw.z;
+        float absDet = abs(det);
+        float tdet = M.z * dot(uvw, z) * sign(det);
+
+        bool3 less = uvw < 0;
+        if (det == 0.0 || tdet < tmin * absDet || tdet > tmax * absDet || less.x != less.y || less.y != less.z)
+            return false;
+        return true;
+    }
+
+    public Optional<Tuple<IntersectedPoint, float>> intersect(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir,
+        float tmin = 0,
+        float tmax = float.maxValue)
+    {
+        float3 M;
+        int axis;
+        preprocessRayForIntersection(rayOrigin, rayDir, rayInvDir, M, axis);
+        return intersectFast(rayOrigin, M, axis, tmin, tmax);
+    }
+
+    public override bool intersectBool(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir,
+        float tmin = 0,
+        float tmax = float.maxValue)
+    {
+        float3 M;
+        int axis;
+        preprocessRayForIntersection(rayOrigin, rayDir, rayInvDir, M, axis);
+        return intersectBoolFast(rayOrigin, M, axis, tmin, tmax);
+    }
+}
+
+// TODO: TriangleMesh (only after BVH exists)
 
 }
