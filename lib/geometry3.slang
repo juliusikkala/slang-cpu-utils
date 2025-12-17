@@ -14,14 +14,110 @@ public interface IBoundedShape<T>
     public void computeBounds(out T boundShape);
 }
 
-public interface ISurfacePoint<T>
+public interface ISurfacePoint<T: ISurface>
 {
     public float3 getPosition(T s);
     public float3 getNormal(T s);
-    // Aka: barycoords or some other 2D mapping on 3D surface. The values must
-    // uniquely identify a point on the surface, this is not for texture
-    // coordinates or arbitrary data.
-    public float2 getMapping(T s);
+    public T.MappedPoint getMapping(T s);
+}
+
+public interface IRayIntersectionImpl<T: ISurface>
+{
+    // Call repeatedly to discover all intersections for this query.
+    // The order of the returned intersections is unspecified.
+    // Traversal is over after `none` is returned.
+    [mutating]
+    public Optional<Tuple<T.IntersectedPoint, float>> proceed(
+        T s,
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir,
+        float tmin,
+        float tmax);
+}
+
+public interface IRayIntersectionQuery<T: ISurface>
+{
+    public property T.IntersectedPoint candidate { get; }
+    public property float tcandidate { get; }
+    public property Optional<T.IntersectedPoint> confirmed { get; }
+    public property float tconfirmed { get; }
+
+    [mutating]
+    public bool proceed();
+
+    [mutating]
+    public void confirm();
+}
+
+public struct RayIntersectionQuery<T: ISurface>: IRayIntersectionQuery<T>
+{
+    T* surface;
+    T.RayIntersectionImpl ri;
+
+    float3 rayOrigin;
+    float3 rayDir;
+    float3 rayInvDir;
+    float tmin;
+    float tmax;
+
+    T.IntersectedPoint _candidate;
+    float _tcandidate;
+    T.IntersectedPoint _confirmed;
+    float _tconfirmed;
+
+    public property T.IntersectedPoint candidate { get { return _candidate; } }
+    public property float tcandidate { get { return _tcandidate; } }
+    public property Optional<T.IntersectedPoint> confirmed
+    {
+        get {
+            if (_tconfirmed >= tmax)
+                return none;
+            return _confirmed;
+        }
+    }
+    public property float tconfirmed
+    {
+        get {
+            return _tconfirmed;
+        }
+    }
+
+    public __init(
+        T* surface,
+        float3 rayOrigin,
+        float3 rayDir,
+        float tmin,
+        float tmax)
+    {
+        this.surface = surface;
+        this.rayOrigin = rayOrigin;
+        this.rayDir = rayDir;
+        this.rayInvDir = rcp(rayDir);
+        this.ri = surface.beginRayIntersectionQuery(rayOrigin, rayDir, rayInvDir);
+        this.tmin = tmin;
+        this.tmax = tmax;
+        this._tcandidate = tmax + 1.0;
+        this._tconfirmed = tmax;
+    }
+
+    [mutating]
+    public bool proceed()
+    {
+        let result = ri.proceed(*surface, rayOrigin, rayDir, rayInvDir, tmin, tconfirmed);
+        if (!result.hasValue)
+            return false;
+        this._candidate = result.value._0;
+        this._tcandidate = result.value._1;
+        return true;
+    }
+
+    [mutating]
+    public void confirm()
+    {
+        _confirmed = _candidate;
+        _tconfirmed = _tcandidate;
+    }
 }
 
 public interface ISurface
@@ -38,12 +134,16 @@ public interface ISurface
     associatedtype SampledPoint: ISurfacePoint<This>;
     associatedtype MappedPoint: ISurfacePoint<This>;
     associatedtype IntersectedPoint: ISurfacePoint<This>;
+    associatedtype RayIntersectionImpl: IRayIntersectionImpl<This>;
 
     // "jacobian" is actually the absolute jacobian determinant here. If the pdf
     // of `s` is 1, then the PDF after this sampling is 1.0/jacobian.
     public SampledPoint sampleSurface(float2 s, out float jacobian);
 
-    public MappedPoint getMappedPoint(float2 mapping);
+    public RayIntersectionImpl beginRayIntersectionQuery(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir);
 
     public Optional<Tuple<IntersectedPoint, float>> intersect(
         float3 rayOrigin,
@@ -185,41 +285,38 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
     public struct MappedPoint: ISurfacePoint<This>
     {
         public float2 mapping;
+        public int chosenFace;
+
         public float3 getPosition(AABB3 s)
         {
-            int chosenFace = int(mapping[0]);
             int chosenAxis = chosenFace >= 3 ? chosenFace - 3 : chosenFace;
             int chosenSign = chosenFace < 3 ? -1 : 1;
-
-            // Scale to [-1, 1]
-            let u = 2.0 * frac(mapping) - 1.0;
 
             var p = s.center;
             let r = s.radius;
 
             float3 offset;
             if (chosenAxis == 0)
-                offset = float3(chosenSign, u.xy);
+                offset = float3(chosenSign, mapping.xy);
             else if(chosenAxis == 1)
-                offset = float3(u.x, chosenSign, u.y);
+                offset = float3(mapping.x, chosenSign, mapping.y);
             else
-                offset = float3(u.xy, chosenSign);
+                offset = float3(mapping.xy, chosenSign);
 
             return p + offset * r;
         }
 
         public float3 getNormal(AABB3 s)
         {
-            int chosenFace = int(mapping[0]);
             int chosenAxis = chosenFace >= 3 ? chosenFace - 3 : chosenFace;
             float3 normal = float3(0);
             normal[chosenAxis] = chosenFace < 3 ? -1 : 1;
             return normal;
         }
 
-        public float2 getMapping(AABB3 s)
+        public This getMapping(AABB3 s)
         {
-            return mapping;
+            return this;
         }
     }
     public typealias SampledPoint = MappedPoint;
@@ -263,17 +360,10 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
         }
         u.y = u.y * 2.0;
 
-        // Identify chosen face in mapping
-        var mapping = u;
-        mapping.x += (chosenSign < 0 ? 0 : 3) + chosenAxis;
-
         jacobian = 2.0f * sum;
-        return SampledPoint(mapping);
-    }
-
-    public MappedPoint getMappedPoint(float2 mapping)
-    {
-        return MappedPoint(mapping);
+        return SampledPoint(
+            2.0f * u - 1.0f,
+            chosenAxis + (chosenSign < 0 ? 0 : 3));
     }
 
     public void sampleVolume(
@@ -287,8 +377,31 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
 
     public struct IntersectedPoint: ISurfacePoint<This>
     {
-        public int face;
         public float3 pos;
+
+        private float3 getAxisSign(AABB3 s, out int axis, out int asign)
+        {
+            let d = (pos - s.center) / s.edges;
+            let ad = abs(d);
+
+            if (ad.x > ad.y && ad.x > ad.z)
+            {
+                axis = 0;
+                asign = sign(d.x);
+            }
+            else if (ad.y > ad.z)
+            {
+                axis = 1;
+                asign = sign(d.y);
+            }
+            else
+            {
+                axis = 2;
+                asign = sign(d.z);
+            }
+            return d;
+        }
+
         public float3 getPosition(AABB3 s)
         {
             return pos;
@@ -296,19 +409,17 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
 
         public float3 getNormal(AABB3 s)
         {
-            let uv = (pos - s.minBound) / s.edges;
-            int chosenAxis = face >= 3 ? face - 3 : face;
-            int chosenSign = face < 3 ? -1 : 1;
+            int chosenAxis, chosenSign;
+            getAxisSign(s, chosenAxis, chosenSign);
             float3 normal = float3(0);
             normal[chosenAxis] = chosenSign;
             return normal;
         }
 
-        public float2 getMapping(AABB3 s)
+        public MappedPoint getMapping(AABB3 s)
         {
-            let uv = (pos - s.minBound) / s.edges;
-            int chosenAxis = face >= 3 ? face - 3 : face;
-            int chosenSign = face < 3 ? -1 : 1;
+            int chosenAxis, chosenSign;
+            let uv = getAxisSign(s, chosenAxis, chosenSign);
 
             float2 mapping;
             if (chosenAxis == 0)
@@ -318,37 +429,45 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
             else
                 mapping = float2(uv.x, uv.y);
 
-            mapping.x += chosenAxis + (chosenSign < 0 ? 0 : 3);
-            return mapping;
+            return MappedPoint(
+                2.0 * mapping, chosenAxis + (chosenSign < 0 ? 0 : 3));
         }
     }
 
-    public override Optional<Tuple<IntersectedPoint, float>> intersect(
-        float3 rayOrigin,
-        float3 rayDir,
-        float3 rayInvDir,
-        float tmin,
-        float tmax)
+    public struct RayIntersectionImpl: IRayIntersectionImpl<This>
     {
-        let t0 = (minBound - rayOrigin) * rayInvDir;
-        let t1 = (maxBound - rayOrigin) * rayInvDir;
-        let mins = min(t0, t1);
-        let maxs = max(t0, t1);
-        float near = max(mins[0], max(mins[1], mins[2]));
-        float far = min(maxs[0], min(maxs[1], maxs[2]));
-        if(near <= far && far > tmin && near < tmax)
+        public float2 candidates;
+
+        [mutating]
+        public Optional<Tuple<IntersectedPoint, float>> proceed(
+            AABB3 s,
+            float3 rayOrigin,
+            float3 rayDir,
+            float3 rayInvDir,
+            float tmin,
+            float tmax)
         {
-            float t = near > tmin ? near : far;
-            int face = 0;
-            if (t == t0.y) face = 1;
-            else if (t == t0.z) face = 2;
-            else if (t == t1.x) face = 3;
-            else if (t == t1.y) face = 4;
-            else if (t == t1.z) face = 5;
-            return makeTuple(
-                IntersectedPoint(face, rayOrigin + t * rayDir), t);
+            float near = candidates.x;
+            float far = candidates.y;
+            if (near >= far)
+                return none;
+
+            float t;
+            if (near > tmin && near < tmax)
+            {
+                // Make sure we won't return the same value again.
+                candidates.x = tmin;
+                t = near;
+            }
+            else if (far > tmin && far < tmax)
+            {
+                // Make sure near >= far comparison goes through next time.
+                candidates.y = near;
+                t = far;
+            }
+            else return none;
+            return makeTuple(IntersectedPoint(rayOrigin + t * rayDir), t);
         }
-        return none;
     }
 
     private float2 intersectionCandidates(
@@ -363,6 +482,33 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
         float near = max(mins[0], max(mins[1], mins[2]));
         float far = min(maxs[0], min(maxs[1], maxs[2]));
         return float2(near, far);
+    }
+
+    public RayIntersectionImpl beginRayIntersectionQuery(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir
+    ){
+        float2 candidates = intersectionCandidates(rayOrigin, rayDir, rayInvDir);
+        return RayIntersectionImpl(candidates);
+    }
+
+    public override Optional<Tuple<IntersectedPoint, float>> intersect(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir,
+        float tmin,
+        float tmax)
+    {
+        float2 nf = intersectionCandidates(rayOrigin, rayDir, rayInvDir);
+        float near = nf.x;
+        float far = nf.y;
+        if(near <= far && far > tmin && near < tmax)
+        {
+            float t = near > tmin ? near : far;
+            return makeTuple(IntersectedPoint(rayOrigin + t * rayDir), t);
+        }
+        return none;
     }
 
     public override Optional<float> intersectDist(
@@ -433,9 +579,9 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
             return normal;
         }
 
-        public float2 getMapping(Sphere s)
+        public MappedPoint getMapping(Sphere s)
         {
-            return directionToOctahedral(normal);
+            return MappedPoint(directionToOctahedral(normal));
         }
     }
 
@@ -459,15 +605,10 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
             return octahedralToDirection(octahedral);
         }
 
-        public float2 getMapping(Sphere s)
+        public MappedPoint getMapping(Sphere s)
         {
-            return octahedral;
+            return this;
         }
-    }
-
-    public MappedPoint getMappedPoint(float2 mapping)
-    {
-        return MappedPoint(mapping);
     }
 
     public struct IntersectedPoint: ISurfacePoint<This>
@@ -483,10 +624,75 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
             return normalize(pos - s.origin);
         }
 
-        public float2 getMapping(Sphere s)
+        public MappedPoint getMapping(Sphere s)
         {
-            return directionToOctahedral(pos - s.origin);
+            return MappedPoint(directionToOctahedral(pos - s.origin));
         }
+    }
+
+    public struct RayIntersectionImpl: IRayIntersectionImpl<This>
+    {
+        public float2 candidates;
+
+        [mutating]
+        public Optional<Tuple<IntersectedPoint, float>> proceed(
+            Sphere s,
+            float3 rayOrigin,
+            float3 rayDir,
+            float3 rayInvDir,
+            float tmin,
+            float tmax)
+        {
+            float near = candidates.x;
+            float far = candidates.y;
+            if (near >= far)
+                return none;
+
+            float t;
+            if (near > tmin && near < tmax)
+            {
+                // Make sure we won't return the same value again.
+                candidates.x = tmin;
+                t = near;
+            }
+            else if (far > tmin && far < tmax)
+            {
+                // Make sure near >= far comparison goes through next time.
+                candidates.y = near;
+                t = far;
+            }
+            else return none;
+            return makeTuple(IntersectedPoint(rayOrigin + t * rayDir), t);
+        }
+    }
+
+    private Optional<float2> intersectionCandidates(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir
+    ){
+        float3 rp = rayOrigin - origin;
+        float b = dot(rp, rayDir);
+        float c = dot(rp, rp) - radius * radius;
+        float discriminant = b * b - c;
+        if (discriminant < 0) return none;
+
+        float sqrtD = sqrt(discriminant);
+        float near = -sqrtD - b;
+        float far = sqrtD - b;
+        return float2(near, far);
+    }
+
+    public RayIntersectionImpl beginRayIntersectionQuery(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir)
+    {
+        Optional<float2> candidates = intersectionCandidates(rayOrigin, rayDir, rayInvDir);
+        float2 nf = float2(1,0); // This always fails the near < far check
+        if (candidates.hasValue)
+            nf = candidates.value;
+        return RayIntersectionImpl(nf);
     }
 
     public Optional<Tuple<IntersectedPoint, float>> intersect(
@@ -508,15 +714,11 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
         float tmin = 0,
         float tmax = float.maxValue)
     {
-        float3 rp = rayOrigin - origin;
-        float b = dot(rp, rayDir);
-        float c = dot(rp, rp) - radius * radius;
-        float discriminant = b * b - c;
-        if (discriminant < 0) return none;
-
-        float sqrtD = sqrt(discriminant);
-        float near = -sqrtD - b;
-        float far = sqrtD - b;
+        Optional<float2> candidates = intersectionCandidates(rayOrigin, rayDir, rayInvDir);
+        if (!candidates.hasValue)
+            return none;
+        float near = candidates.value.x;
+        float far = candidates.value.y;
 
         if (near > tmax || far < tmin)
             return none;
@@ -600,9 +802,9 @@ public struct Triangle3: ISurface, IBoundedShape<AABB3>
             return normalize(cross(e1, e2));
         }
 
-        public float2 getMapping(Triangle3 s)
+        public MappedPoint getMapping(Triangle3 s)
         {
-            return barycoords;
+            return this;
         }
     }
     public typealias SampledPoint = MappedPoint;
@@ -673,10 +875,39 @@ public struct Triangle3: ISurface, IBoundedShape<AABB3>
             return normalize(cross(e1, e2));
         }
 
-        public float2 getMapping(Triangle3 s)
+        public MappedPoint getMapping(Triangle3 s)
         {
-            return barycoords;
+            return MappedPoint(barycoords);
         }
+    }
+
+    public struct RayIntersectionImpl: IRayIntersectionImpl<This>
+    {
+        public bool finished;
+
+        [mutating]
+        public Optional<Tuple<IntersectedPoint, float>> proceed(
+            Triangle3 s,
+            float3 rayOrigin,
+            float3 rayDir,
+            float3 rayInvDir,
+            float tmin,
+            float tmax)
+        {
+            if (finished)
+                return none;
+
+            finished = true;
+            return s.intersect(rayOrigin, rayDir, rayInvDir, tmin, tmax);
+        }
+    }
+
+    public RayIntersectionImpl beginRayIntersectionQuery(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir)
+    {
+        return RayIntersectionImpl(false);
     }
 
     private void intersectTransform(
@@ -752,8 +983,13 @@ public struct Triangle3: ISurface, IBoundedShape<AABB3>
 
         float3 uvw = cross(y, x);
         float det = uvw.x + uvw.y + uvw.z;
-        float absDet = abs(det);
-        float tdet = M.z * dot(uvw, z) * sign(det);
+        float absDet = det;
+        float tdet = M.z * dot(uvw, z);
+        if (det < 0)
+        {
+            tdet = -tdet;
+            absDet = -det;
+        }
 
         bool3 less = uvw < 0;
         if (det == 0.0 || tdet < tmin * absDet || tdet > tmax * absDet || less.x != less.y || less.y != less.z)
