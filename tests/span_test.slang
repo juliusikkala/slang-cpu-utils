@@ -2,6 +2,8 @@ import span;
 import array;
 import test;
 
+using scul;
+
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
     int data[6] = {0,0,0,1,2,3};

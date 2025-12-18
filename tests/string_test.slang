@@ -2,6 +2,8 @@ import test;
 import drop;
 import string;
 
+using scul;
+
 void testParseInt(NativeString str, bool expectSuccess, int base, bool allowNegative, int64_t expectedValue=0, int expectedWidth=0)
 {
     int offset = 0;
@@ -85,7 +87,7 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
             "rauta nuorin veljeksiä,\n"
             "tuli kerran keskimäinen."
         );
-        test(testString.length == 145, "U8String.length %lu", testString.length);
+        test(testString.len == 145, "U8String.length %lu", testString.len);
         test(testString.getSize() == 145, "U8String.getSize");
         test(testString.getCodePointCount() == 140, "U8String.getCodePointCount");
         test(testString.asList().size == 145, "U8String.asList() 1");
@@ -110,7 +112,7 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
         test(newString.hash() == testString.hash(), "fromList & hash");
 
         newString.drop();
-        test(newString.length == 0, "U8String.clear 1");
+        test(newString.len == 0, "U8String.clear 1");
         test(newString.asList().size == 0, "U8String.clear 2");
 
         uint32_t expected_chars[11] = {
@@ -125,7 +127,7 @@ export __extern_cpp int main(int argc, Ptr<NativeString> argv)
         test(offset == 12, "stepCodePoint offset");
 
         testString.drop();
-        test(testString.length == 0, "U8String.drop");
+        test(testString.len == 0, "U8String.drop");
     }
 
     {

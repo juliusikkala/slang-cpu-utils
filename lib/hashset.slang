@@ -4,6 +4,9 @@ import memory;
 import drop;
 import equal;
 
+namespace scul
+{
+
 public struct HashSet<T>: IDroppable, IBigArray<T>
     where T: IHashable, IEqual
     where optional T: IDroppable
@@ -210,4 +213,6 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
     {
         get { return _data[i]; }
     }
+}
+
 }
