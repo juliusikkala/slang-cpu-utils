@@ -35,12 +35,11 @@ static struct {
     std::vector<std::string> importModules;
     std::vector<std::string> usingNamespaces;
     std::vector<std::string> importedHeaders;
-    std::vector<std::string> defines;
-    std::vector<std::string> includePaths;
     std::set<std::string> exportSymbols;
     std::vector<std::regex> unscopedEnums;
     std::vector<std::regex> removeCommonPrefixes;
     std::vector<std::regex> removeEnumCases;
+    std::vector<std::string> forwardedArgsToClang;
     std::string enumFallbackPrefix = "e";
     bool useByteBool = false;
 } options;
@@ -59,8 +58,6 @@ Options:
 --import <module>         adds a `import module;` at the start 
 --imported <header>       marks declarations from a C header as already included
                           through an `--import`ed module
---define <name>=<value>   uses the given preprocessor macro when parsing headers
---include-dir <path>      adds the given include path parsing headers
 --unscoped-enums <regex>  uses unscoped enums for the listed types.
 --rm-enum-prefix <regex>  removes a prefix from all enum cases if it's common to
                           all cases in the enum. For a regex, the longest
@@ -74,6 +71,8 @@ Options:
                           default layout to something where sizeof(bool) != 1.
 --call-shim <object-file> generates shim object code for calling C functions
                           with difficult calling convention issues
+
+All parameters after a -- are passed to Clang verbatim.
 )";
 
 void printHelp(bool asError, const char** argv)
@@ -99,7 +98,7 @@ bool parseOptions(int argc, const char** argv)
 
                 // If '--' is specified, that means that there are no further
                 // flags to handle, and the rest of the parameters should be
-                // taken literally as C header names.
+                // taken literally as Clang parameters.
                 if (*arg == 0)
                 {
                     endFlags = true;
@@ -136,16 +135,6 @@ bool parseOptions(int argc, const char** argv)
             else if (strcmp(arg, "imported") == 0)
             {
                 options.importedHeaders.push_back(value);
-                i++;
-            }
-            else if (strcmp(arg, "define") == 0)
-            {
-                options.defines.push_back(value);
-                i++;
-            }
-            else if (strcmp(arg, "include-dir") == 0)
-            {
-                options.includePaths.push_back(value);
                 i++;
             }
             else if (strcmp(arg, "output") == 0)
@@ -205,6 +194,10 @@ bool parseOptions(int argc, const char** argv)
                 fprintf(stderr, "Unknown flag: %s\n", arg);
                 return false;
             }
+        }
+        else if (endFlags)
+        {
+            options.forwardedArgsToClang.push_back(arg);
         }
         else
         {
@@ -468,21 +461,36 @@ struct ClangSession
         auto fs = llvm::vfs::getRealFileSystem();
         llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagID(new clang::DiagnosticIDs());
         llvm::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(new clang::DiagnosticsEngine(diagID, diagOpts, &diagConsumer, false));
-        driver.reset(new clang::driver::Driver(BINDGEN_PATH_TO_CLANG, options.targetTriple, *diags, "Slang Bindgen", fs));
-
-        // Add some fake job to dig out the system library directories from 
-        // Clang :/
-        driver->setCheckInputsExist(false);
-
         // The path to Clang is only needed because the driver computes some
         // include directories based on that :( it doesn't mean that this
         // program would actually depend on the presence of the Clang executable
         // itself.
-        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I.", "-g0", "-fvisibility=default"}));
+        driver.reset(new clang::driver::Driver(BINDGEN_PATH_TO_CLANG, options.targetTriple, *diags, "Slang Bindgen", fs));
+
+        driver->setCheckInputsExist(false);
+
+        std::vector<const char*> argsToClang;
+
+        argsToClang.push_back("clang");
+        for (auto& arg: options.forwardedArgsToClang)
+            argsToClang.push_back(arg.c_str());
+        argsToClang.push_back("-w");
+        // Add some fake job to dig out the system library directories from 
+        // Clang :/
+        argsToClang.push_back("-S"); argsToClang.push_back("dummy.c");
+        argsToClang.push_back("-I.");
+        argsToClang.push_back("-g0");
+        argsToClang.push_back("-fvisibility=default");
+        argsToClang.push_back("-target");
+        argsToClang.push_back(options.targetTriple.c_str());
+        argsToClang.push_back("-std=c17");
+
+        comp.reset(driver->BuildCompilation(argsToClang));
+
         const auto &jobs = comp->getJobs();
         assert(jobs.size() == 1);
         // These args should contain correct system include directories as well.
-        const llvm::opt::ArgStringList &ccArgs = jobs.begin()->getArguments();
+        llvm::opt::ArgStringList ccArgs = jobs.begin()->getArguments();
 
         clang.reset(new clang::CompilerInstance());
         auto& invocation = clang->getInvocation();
@@ -497,19 +505,7 @@ struct ClangSession
         auto& targetOpts = invocation.getTargetOpts();
         targetOpts.Triple = options.targetTriple;
 
-        auto& ppOpts = invocation.getPreprocessorOpts();
-        for (const std::string& def: options.defines)
-            ppOpts.addMacroDef(def);
-
-        auto& opts = invocation.getLangOpts();
-        std::vector<std::string> includes;
-        clang::LangOptions::setLangDefaults(
-            opts, clang::Language::C, llvm::Triple(options.targetTriple),
-            includes, clang::LangStandard::Kind::lang_c17
-        );
         auto& searchOpts = clang->getHeaderSearchOpts();
-        for (const std::string& path: options.includePaths)
-            searchOpts.AddPath(path, clang::frontend::IncludeDirGroup::Angled, false, false);
 
         searchOpts.UseBuiltinIncludes = true;
         searchOpts.UseStandardSystemIncludes = true;
@@ -623,22 +619,24 @@ std::optional<std::string> maybeGetName(clang::NamedDecl* decl)
     if (name)
         return name.getAsString();
 
-    clang::TagDecl* tag = clang::cast_or_null<clang::TagDecl>(decl);
-    if (tag)
-    {
-        clang::TypedefNameDecl* typedefName = tag->getTypedefNameForAnonDecl();
-        if (typedefName)
-            return typedefName->getNameAsString();
-    }
+    if (!clang::isa<clang::TagDecl>(decl))
+        return {};
+
+    clang::TagDecl* tag = clang::cast<clang::TagDecl>(decl);
+
+    clang::TypedefNameDecl* typedefName = tag->getTypedefNameForAnonDecl();
+    if (typedefName)
+        return typedefName->getNameAsString();
 
     return {};
 }
 
 bool isNameActive(clang::Decl* decl)
 {
-    clang::NamedDecl* named = clang::cast_or_null<clang::NamedDecl>(decl);
-    if (!named)
+    if (!clang::isa<clang::NamedDecl>(decl))
         return false;
+
+    clang::NamedDecl* named = clang::cast<clang::NamedDecl>(decl);
 
     std::optional<std::string> name = maybeGetName(named);
     if (!name.has_value())
