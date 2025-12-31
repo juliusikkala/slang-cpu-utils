@@ -2,6 +2,8 @@ import drop;
 import list;
 import test;
 
+using scul;
+
 static int drops = 0;
 
 public struct DropCounter: IDroppable

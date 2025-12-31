@@ -1,6 +1,8 @@
 import time;
 import test;
 
+using scul;
+
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
     let begin = getTicks();
