@@ -1418,7 +1418,9 @@ void dumpConstantVar(BindingContext& ctx, clang::VarDecl* decl)
     auto& astCtx = ctx.session->getASTContext();
     clang::Expr::EvalResult result;
     if (!initializer->EvaluateAsConstantExpr(result, astCtx))
+    {
         return;
+    }
 
     clang::PrintingPolicy policy = astCtx.getPrintingPolicy();
     policy.ConstantsAsWritten = 1;
@@ -1467,6 +1469,13 @@ void dumpConstantVar(BindingContext& ctx, clang::VarDecl* decl)
         }
         else return;
     }
+    else if (result.Val.isLValue() && decl->getType()->isPointerType())
+    {
+        auto offset = result.Val.getLValueOffset();
+        std::stringstream stream;
+        stream << "reinterpret<" << type << ">(0x" << std::hex << offset.getQuantity() << "u)";
+        initializerStr = stream.str();
+    }
     else return;
 
     ctx.output(
@@ -1492,8 +1501,8 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
     // Only expose constant variables.
     if (decl->getType().isConstQualified() && decl->hasInit())
         dumpConstantVar(ctx, decl);
-    else if (!decl->hasInit() && decl->hasExternalStorage())
-        dumpExternVar(ctx, decl);
+    //else if (!decl->hasInit() && decl->hasExternalStorage())
+    //    dumpExternVar(ctx, decl);
 }
 
 void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
