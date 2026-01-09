@@ -23,6 +23,7 @@ Options:
 * `--import <module>` adds a `import module;` at the start.
 * `--imported <header>` marks declarations from a C header as already included through an `--import`ed module.
 * `--unscoped-enums <regex>` uses unscoped enums for the listed types.
+* `--enums-as-constants <regex>` turns matching enums into global constants of the underlying type.
 * `--rm-enum-prefix <regex>` removes a prefix from all enum cases if it's common to all cases in the enum. For a regex, the longest matching and present prefix is removed.
 * `--rm-enum-case <regex>` removes matching cases from all enums.
 * `--fallback-prefix <str>` adds the given prefix to all enum case names that would not be valid in Slang.

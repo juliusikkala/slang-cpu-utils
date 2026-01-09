@@ -37,6 +37,7 @@ static struct {
     std::vector<std::string> importedHeaders;
     std::set<std::string> exportSymbols;
     std::vector<std::regex> unscopedEnums;
+    std::vector<std::regex> enumsAsConstants;
     std::vector<std::regex> removeCommonPrefixes;
     std::vector<std::regex> removeEnumCases;
     std::vector<std::string> forwardedArgsToClang;
@@ -62,6 +63,8 @@ Options:
 --rm-enum-prefix <regex>  removes a prefix from all enum cases if it's common to
                           all cases in the enum. For a regex, the longest
                           matching and present prefix is removed.
+--enums-as-constants <regex> turns matching enums into global constants of the
+                             underlying type.
 --export-symbols <sym>    exports declarations with the given names even if they
                           come from outside the input headers.
 --rm-enum-case <regex>    removes matching cases from all enums
@@ -145,6 +148,11 @@ bool parseOptions(int argc, const char** argv)
             else if (strcmp(arg, "unscoped-enums") == 0)
             {
                 options.unscopedEnums.push_back(std::regex(value));
+                i++;
+            }
+            else if (strcmp(arg, "enums-as-constants") == 0)
+            {
+                options.enumsAsConstants.push_back(std::regex(value));
                 i++;
             }
             else if (strcmp(arg, "rm-enum-prefix") == 0)
@@ -696,6 +704,16 @@ bool isUnscopedEnum(const std::string& enumName)
     return false;
 }
 
+bool isConstantifiedEnum(const std::string& enumName)
+{
+    for (auto& expr: options.enumsAsConstants)
+    {
+        if (std::regex_match(enumName, expr))
+            return true;
+    }
+    return false;
+}
+
 std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)
 {
     const clang::Type& type = *qualType.getTypePtr();
@@ -809,7 +827,7 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
             ctx.addTypeForwardDeclare(ident);
         }
 
-        if (type.isEnumeralType() && (!visible || ident.empty()))
+        if (type.isEnumeralType() && (!visible || ident.empty() || isConstantifiedEnum(ident)))
         {
             // Use the underlying type for anonymous or externally defined enums.
             clang::EnumDecl* enumDecl = clang::cast<clang::EnumDecl>(decl);
@@ -911,7 +929,7 @@ void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& var
     }
 
     std::string underlyingType = getTypeStr(ctx, decl->getIntegerType());
-    if (name)
+    if (name && !isConstantifiedEnum(*name))
     {
         ctx.addTypeDefinition(*name);
 
