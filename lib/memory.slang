@@ -119,7 +119,7 @@ public struct SystemAllocator: IAllocator
     }
 }
 
-public static IAllocator defaultAllocator = SystemAllocator();
+//public static IAllocator defaultAllocator = SystemAllocator();
 
 public Ptr<T> allocate<T, A: IAllocator>(size_t count, inout A alloc)
 {
@@ -129,6 +129,7 @@ public Ptr<T> allocate<T, A: IAllocator>(size_t count, inout A alloc)
 
 public Ptr<T> allocate<T>(size_t count = 1)
 {
+    var defaultAllocator = SystemAllocator();
     Ptr<void> addr = defaultAllocator.allocate(strideof<T>() * count, alignof<T>());
     return reinterpret<Ptr<T>>(addr);
 }
@@ -140,6 +141,7 @@ public Ptr<T> reallocate<T, A:IAllocator>(Ptr<T> oldPtr, size_t oldCount, size_t
 
 public Ptr<T> reallocate<T>(Ptr<T> oldPtr, size_t oldCount, size_t newCount)
 {
+    var defaultAllocator = SystemAllocator();
     return reinterpret<Ptr<T>>(defaultAllocator.reallocate(reinterpret<Ptr<void>>(oldPtr), strideof<T>() * oldCount, strideof<T>() * newCount, alignof<T>()));
 }
 
@@ -150,6 +152,7 @@ public void deallocate<T, A:IAllocator>(Ptr<T> oldPtr, inout A alloc)
 
 public void deallocate<T>(Ptr<T> oldPtr)
 {
+    var defaultAllocator = SystemAllocator();
     defaultAllocator.deallocate(reinterpret<Ptr<void>>(oldPtr));
 }
 

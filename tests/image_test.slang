@@ -1,6 +1,7 @@
 import test;
 import image;
 import panic;
+import bmp;
 
 using scul;
 

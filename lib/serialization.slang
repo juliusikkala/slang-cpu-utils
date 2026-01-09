@@ -162,6 +162,12 @@ public extension<T : __BuiltinArithmeticType, let N:int> vector<T, N>: ISerializ
             this[i] = element;
         }
     }
+
+    [mutating]
+    override void serialize<A: ISerializer>(inout A ar) throws SerializationError
+    {
+        try ar.serialize(this);
+    }
 }
 
 public extension<T : __BuiltinArithmeticType, let R : int, let C : int, let L : int> matrix<T, R, C, L> : ISerializable
@@ -182,6 +188,12 @@ public extension<T : __BuiltinArithmeticType, let R : int, let C : int, let L : 
             try ar.read(row);
             this[i] = row;
         }
+    }
+
+    [mutating]
+    override void serialize<A: ISerializer>(inout A ar) throws SerializationError
+    {
+        try ar.serialize(this);
     }
 }
 
@@ -207,6 +219,12 @@ public extension<T : ISerializable> Optional<T>: ISerializable
             this = element;
         }
         else this = none;
+    }
+
+    [mutating]
+    override void serialize<A: ISerializer>(inout A ar) throws SerializationError
+    {
+        try ar.serialize(this);
     }
 }
 

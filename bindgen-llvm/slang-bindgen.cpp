@@ -1519,8 +1519,8 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
     // Only expose constant variables.
     if (decl->getType().isConstQualified() && decl->hasInit())
         dumpConstantVar(ctx, decl);
-    //else if (!decl->hasInit() && decl->hasExternalStorage())
-    //    dumpExternVar(ctx, decl);
+    else if (!decl->hasInit() && decl->hasExternalStorage())
+        dumpExternVar(ctx, decl);
 }
 
 void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)

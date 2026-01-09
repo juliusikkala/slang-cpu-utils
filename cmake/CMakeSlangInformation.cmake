@@ -31,11 +31,11 @@ set(CMAKE_Slang_OUTPUT_EXTENSION -module)
 # Build a executable 
 if (WIN32)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -o <TARGET>"
+        "<CMAKE_Slang_COMPILER> -target host-object-code -emit-cpu-via-llvm <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -o <TARGET>"
     )
 elseif(UNIX)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target llvm-obj <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -lm -o <TARGET>"
+        "<CMAKE_Slang_COMPILER> -target host-object-code -emit-cpu-via-llvm <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -lm -o <TARGET>"
     )
 endif()
 
