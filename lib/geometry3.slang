@@ -3,25 +3,24 @@ import mapping;
 namespace scul
 {
 
+public interface IBoundedShape<T>
+{
+    public void computeBounds(out T boundShape);
+}
+
+public interface ISurfacePoint<T>
+{
+    public float3 getPosition(T s);
+    public float3 getNormal(T s);
+}
+
 public struct Ray3
 {
     public float3 origin;
     public float3 direction;
 }
 
-public interface IBoundedShape<T>
-{
-    public void computeBounds(out T boundShape);
-}
-
-public interface ISurfacePoint<T: ISurface>
-{
-    public float3 getPosition(T s);
-    public float3 getNormal(T s);
-    public T.MappedPoint getMapping(T s);
-}
-
-public interface IRayIntersectionImpl<T: ISurface>
+public interface IRayIntersectionImpl<T: IRayIntersectionSurface>
 {
     // Call repeatedly to discover all intersections for this query.
     // The order of the returned intersections is unspecified.
@@ -36,7 +35,7 @@ public interface IRayIntersectionImpl<T: ISurface>
         float tmax);
 }
 
-public interface IRayIntersectionQuery<T: ISurface>
+public interface IRayIntersectionQuery<T: IRayIntersectionSurface>
 {
     public property T.IntersectedPoint candidate { get; }
     public property float tcandidate { get; }
@@ -50,7 +49,7 @@ public interface IRayIntersectionQuery<T: ISurface>
     public void confirm();
 }
 
-public struct RayIntersectionQuery<T: ISurface>: IRayIntersectionQuery<T>
+public struct RayIntersectionQuery<T: IRayIntersectionSurface>: IRayIntersectionQuery<T>
 {
     T* surface;
     T.RayIntersectionImpl ri;
@@ -120,25 +119,43 @@ public struct RayIntersectionQuery<T: ISurface>: IRayIntersectionQuery<T>
     }
 }
 
-public interface ISurface
+// A surface with a known area that can be sampled with a 2D coordinate.
+public interface IMappedSurface
+{
+    public property float area { get; }
+
+    associatedtype MappedPoint: ISurfacePoint<This>;
+
+    // "jacobian" is actually the absolute jacobian determinant here. If the pdf
+    // of `s` is 1, then the PDF after this sampling is 1.0/jacobian.
+    public MappedPoint sampleSurface(float2 s, out float jacobian);
+}
+
+// A surface where the distance to the nearest point can be determined.
+public interface IDistanceSurface
+{
+    // Returns _unsigned_ distance of the surface to point 'p'.
+    public float distanceFromPoint(float3 p);
+}
+
+// A surface where the signed distance to the nearest point can be determined.
+// The surface must divide the world into negative and positive parts.
+public interface ISignedDistanceSurface
+{
+    public float signedDistanceFromPoint(float3 p);
+}
+
+// A surface that can be intersected with a ray.
+public interface IRayIntersectionSurface
 {
     //==========================================================================
     // Mandatory members
     //==========================================================================
-    public property float area { get; }
 
-    // The variety of point types are used to only return the minimal amount
-    // of information that can be used to reconstruct more complex aspects
-    // later. Having a different type for each function allows that data to vary
-    // depending on what is easily accessible.
-    associatedtype SampledPoint: ISurfacePoint<This>;
-    associatedtype MappedPoint: ISurfacePoint<This>;
+    // Having a different point type for each shape allows that data to vary
+    // depending on what is easily accessible and compact to store.
     associatedtype IntersectedPoint: ISurfacePoint<This>;
     associatedtype RayIntersectionImpl: IRayIntersectionImpl<This>;
-
-    // "jacobian" is actually the absolute jacobian determinant here. If the pdf
-    // of `s` is 1, then the PDF after this sampling is 1.0/jacobian.
-    public SampledPoint sampleSurface(float2 s, out float jacobian);
 
     public RayIntersectionImpl beginRayIntersectionQuery(
         float3 rayOrigin,
@@ -155,6 +172,8 @@ public interface ISurface
     //==========================================================================
     // Optionally overridable members
     //==========================================================================
+    // These can be overridden for extra performance, but the above functions
+    // are sufficient.
 
     public Optional<float> intersectDist(
         float3 rayOrigin,
@@ -205,7 +224,13 @@ public interface IVolume
     public property float volume { get; }
 }
 
-public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
+public struct AABB3:
+    IMappedSurface,
+    IRayIntersectionSurface,
+    IVolume,
+    IDistanceSurface,
+    ISignedDistanceSurface,
+    IBoundedShape<AABB3>
 {
     public float3 minBound;
     public float3 maxBound;
@@ -282,6 +307,18 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
         bounds = this;
     }
 
+    public float distanceFromPoint(float3 p)
+    {
+        float3 q = abs(p-center) - radius;
+        return length(max(q, 0)) + abs(min(max(q.x, max(q.y, q.z)), 0));
+    }
+
+    public float signedDistanceFromPoint(float3 p)
+    {
+        float3 q = abs(p-center) - radius;
+        return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
+    }
+
     public struct MappedPoint: ISurfacePoint<This>
     {
         public float2 mapping;
@@ -319,9 +356,8 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
             return this;
         }
     }
-    public typealias SampledPoint = MappedPoint;
 
-    public SampledPoint sampleSurface(float2 s, out float jacobian)
+    public MappedPoint sampleSurface(float2 s, out float jacobian)
     {
         jacobian = area;
         var u = s;
@@ -361,7 +397,7 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
         u.y = u.y * 2.0;
 
         jacobian = 2.0f * sum;
-        return SampledPoint(
+        return MappedPoint(
             2.0f * u - 1.0f,
             chosenAxis + (chosenSign < 0 ? 0 : 3));
     }
@@ -542,7 +578,13 @@ public struct AABB3: ISurface, IVolume, IBoundedShape<AABB3>
     }
 }
 
-public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
+public struct Sphere:
+    IMappedSurface,
+    IRayIntersectionSurface,
+    IVolume,
+    IDistanceSurface,
+    ISignedDistanceSurface,
+    IBoundedShape<AABB3>
 {
     public float3 origin;
     public float radius;
@@ -566,7 +608,17 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
         bounds = AABB3(origin-radius, origin+radius);
     }
 
-    public struct SampledPoint: ISurfacePoint<This>
+    public float distanceFromPoint(float3 p)
+    {
+        return abs(length(p-origin) - radius);
+    }
+
+    public float signedDistanceFromPoint(float3 p)
+    {
+        return length(p-origin) - radius;
+    }
+
+    public struct MappedPoint: ISurfacePoint<This>
     {
         public float3 normal;
         public float3 getPosition(Sphere s)
@@ -578,37 +630,13 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
         {
             return normal;
         }
-
-        public MappedPoint getMapping(Sphere s)
-        {
-            return MappedPoint(directionToOctahedral(normal));
-        }
     }
 
-    public SampledPoint sampleSurface(float2 s, out float jacobian)
+    public MappedPoint sampleSurface(float2 s, out float jacobian)
     {
         float3 normal = uhcToSphereUniform(s);
         jacobian = area;
-        return SampledPoint(normal);
-    }
-
-    public struct MappedPoint: ISurfacePoint<This>
-    {
-        public float2 octahedral;
-        public float3 getPosition(Sphere s)
-        {
-            return s.origin + octahedralToDirection(octahedral) * s.radius;
-        }
-
-        public float3 getNormal(Sphere s)
-        {
-            return octahedralToDirection(octahedral);
-        }
-
-        public MappedPoint getMapping(Sphere s)
-        {
-            return this;
-        }
+        return MappedPoint(normal);
     }
 
     public struct IntersectedPoint: ISurfacePoint<This>
@@ -622,11 +650,6 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
         public float3 getNormal(Sphere s)
         {
             return normalize(pos - s.origin);
-        }
-
-        public MappedPoint getMapping(Sphere s)
-        {
-            return MappedPoint(directionToOctahedral(pos - s.origin));
         }
     }
 
@@ -765,7 +788,87 @@ public struct Sphere: ISurface, IVolume, IBoundedShape<AABB3>
     }
 }
 
-public struct Triangle3: ISurface, IBoundedShape<AABB3>
+public struct Plane3:
+    IRayIntersectionSurface,
+    IDistanceSurface,
+    ISignedDistanceSurface
+{
+    public float3 normal;
+    public float dist;
+
+    public float distanceFromPoint(float3 p)
+    {
+        return abs(distance(normal, p) - dist);
+    }
+
+    public float signedDistanceFromPoint(float3 p)
+    {
+        return distance(normal, p) - dist;
+    }
+
+    public struct IntersectedPoint: ISurfacePoint<This>
+    {
+        public float3 pos;
+
+        public float3 getPosition(Plane3 s)
+        {
+            return pos;
+        }
+
+        public float3 getNormal(Plane3 s)
+        {
+            return s.normal;
+        }
+    }
+
+    public struct RayIntersectionImpl: IRayIntersectionImpl<This>
+    {
+        public bool finished;
+
+        [mutating]
+        public Optional<Tuple<IntersectedPoint, float>> proceed(
+            Plane3 s,
+            float3 rayOrigin,
+            float3 rayDir,
+            float3 rayInvDir,
+            float tmin,
+            float tmax)
+        {
+            if (finished)
+                return none;
+
+            finished = true;
+            return s.intersect(rayOrigin, rayDir, rayInvDir, tmin, tmax);
+        }
+    }
+
+    public RayIntersectionImpl beginRayIntersectionQuery(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir
+    ){
+        return RayIntersectionImpl();
+    }
+
+    public Optional<Tuple<IntersectedPoint, float>> intersect(
+        float3 rayOrigin,
+        float3 rayDir,
+        float3 rayInvDir,
+        float tmin = 0,
+        float tmax = float.maxValue)
+    {
+        float t = (dist - dot(normal, rayOrigin)) / dot(normal, rayDir);
+        if (t > tmin && t < tmax)
+            return makeTuple(IntersectedPoint(rayOrigin + t * rayDir), t);
+        return none;
+    }
+}
+
+public struct Triangle3:
+    IMappedSurface,
+    IRayIntersectionSurface,
+    IDistanceSurface,
+    IBoundedShape<AABB3>
 {
     public float3 vertices[3];
 
@@ -782,6 +885,36 @@ public struct Triangle3: ISurface, IBoundedShape<AABB3>
             min(min(vertices[0],vertices[1]),vertices[2]),
             max(max(vertices[0],vertices[1]),vertices[2])
         );
+    }
+
+    public float distanceFromPoint(float3 p)
+    {
+        float3 v1 = p - vertices[0];
+        float3 v2 = p - vertices[1];
+        float3 v3 = p - vertices[2];
+        float3 e1 = vertices[1] - vertices[0];
+        float3 e2 = vertices[2] - vertices[1];
+        float3 e3 = vertices[0] - vertices[2];
+
+        float3 normal = normalize(cross(e1, e2));
+
+        if (
+            dot(v1, cross(e1, normal)) > 0.0 ||
+            dot(v2, cross(e2, normal)) > 0.0 ||
+            dot(v3, cross(e3, normal)) > 0.0
+        ){
+            // Outer point, distance to closest edge.
+            float3 c1 = e1 * saturate(dot(v1,e1)/dot(e1,e1)) - v1;
+            float3 c2 = e2 * saturate(dot(v2,e2)/dot(e2,e2)) - v2;
+            float3 c3 = e3 * saturate(dot(v3,e3)/dot(e3,e3)) - v3;
+            
+            return sqrt(min(dot(c1, c1), min(dot(c2, c2), dot(c3, c3))));
+        }
+        else
+        {
+            // Inner point, distance to plane.
+            return abs(dot(v1, normal));
+        }
     }
 
     public struct MappedPoint: ISurfacePoint<This>
@@ -801,15 +934,9 @@ public struct Triangle3: ISurface, IBoundedShape<AABB3>
             float3 e2 = s.vertices[2] - s.vertices[0];
             return normalize(cross(e1, e2));
         }
-
-        public MappedPoint getMapping(Triangle3 s)
-        {
-            return this;
-        }
     }
-    public typealias SampledPoint = MappedPoint;
 
-    public SampledPoint sampleSurface(float2 s, out float jacobian)
+    public MappedPoint sampleSurface(float2 s, out float jacobian)
     {
         jacobian = area;
         return MappedPoint(uhcToBarycentric(s));
