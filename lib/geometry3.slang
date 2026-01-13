@@ -3,11 +3,6 @@ import mapping;
 namespace scul
 {
 
-public interface IBoundedShape<T>
-{
-    public void computeBounds(out T boundShape);
-}
-
 public interface ISurfacePoint<T>
 {
     public float3 getPosition(T s);
@@ -119,11 +114,15 @@ public struct RayIntersectionQuery<T: IRayIntersectionSurface>: IRayIntersection
     }
 }
 
-// A surface with a known area that can be sampled with a 2D coordinate.
-public interface IMappedSurface
+// A surface with a known area.
+public interface IAreaSurface
 {
     public property float area { get; }
+}
 
+// A surface with a known area that can be sampled with a 2D coordinate.
+public interface IMappedSurface: IAreaSurface
+{
     associatedtype MappedPoint: ISurfacePoint<This>;
 
     // "jacobian" is actually the absolute jacobian determinant here. If the pdf
@@ -224,13 +223,27 @@ public interface IVolume
     public property float volume { get; }
 }
 
+// A surface that can be used as a bounding volume.
+public interface IBoundingVolume: IAreaSurface, IVolume
+{
+    public property float3 centroid { get; }
+    public Tuple<float3, float3> axisAlignedExtents();
+    public float2 extents(float3 axis);
+}
+
+// A surface for which a bounding volume can be computed.
+public interface IBoundedShape<T>
+{
+    public void computeBounds(out T boundShape);
+}
+
 public struct AABB3:
     IMappedSurface,
     IRayIntersectionSurface,
-    IVolume,
+    IBoundingVolume,
+    IBoundedShape<AABB3>,
     IDistanceSurface,
-    ISignedDistanceSurface,
-    IBoundedShape<AABB3>
+    ISignedDistanceSurface
 {
     public float3 minBound;
     public float3 maxBound;
@@ -300,6 +313,26 @@ public struct AABB3:
             let e = edges;
             return e.x*e.y*e.z;
         }
+    }
+
+    public property float3 centroid {
+        get {
+            return center;
+        }
+    }
+
+    public Tuple<float3, float3> axisAlignedExtents()
+    {
+        return makeTuple(minBound, maxBound);
+    }
+
+    public float2 extents(float3 axis)
+    {
+        float3 a = axis * minBound;
+        float3 b = axis * maxBound;
+        float3 mine = min(a, b);
+        float3 maxe = max(a, b);
+        return float2(mine.x+mine.y+mine.z, maxe.x+maxe.y+maxe.z);
     }
 
     public void computeBounds(out AABB3 bounds)
@@ -581,7 +614,7 @@ public struct AABB3:
 public struct Sphere:
     IMappedSurface,
     IRayIntersectionSurface,
-    IVolume,
+    IBoundingVolume,
     IDistanceSurface,
     ISignedDistanceSurface,
     IBoundedShape<AABB3>
@@ -601,6 +634,23 @@ public struct Sphere:
         get {
             return (4.0/3.0) * float.getPi() * radius * radius * radius;
         }
+    }
+
+    public property float3 centroid {
+        get {
+            return origin;
+        }
+    }
+
+    public Tuple<float3, float3> axisAlignedExtents()
+    {
+        return makeTuple(origin-radius, origin+radius);
+    }
+
+    public float2 extents(float3 axis)
+    {
+        float c = dot(axis, origin);
+        return float2(c - radius, c + radius);
     }
 
     public void computeBounds(out AABB3 bounds)
