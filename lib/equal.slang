@@ -1,3 +1,6 @@
+namespace scul
+{
+
 public interface IEqual
 {
     bool isEqual(This other);
@@ -23,4 +26,6 @@ public extension<T> Ptr<T>: IEqual
 public bool operator==<T: IEqual>(T a, T b)
 {
     return a.isEqual(b);
+}
+
 }

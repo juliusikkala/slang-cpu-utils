@@ -2,6 +2,8 @@ import test;
 import list;
 import random;
 
+using scul;
+
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
     // The Big thing about IBigArray is that it can index over 2^31-1.

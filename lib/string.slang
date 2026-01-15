@@ -3,12 +3,17 @@ import array;
 import drop;
 import span;
 import hash;
+import crt;
+import serialization;
+
+namespace scul
+{
 
 public NativeString ptrToString<T>(Ptr<T> ptr)
 {
     // These bad boys are surprisingly hard to construct, since reinterpret<T>
     // doesn't like NativeString.
-    __intrinsic_asm "((const char*)$0)";
+    __intrinsic_asm "ret $0";
 }
 
 public Ptr<T> stringToPtr<T>(NativeString ptr)
@@ -16,18 +21,20 @@ public Ptr<T> stringToPtr<T>(NativeString ptr)
     return Ptr<T>(ptr.getBuffer());
 }
 
-public Optional<int64_t> parseInt(NativeString str, inout int offset, int radix = 10, bool allowNegative = true)
+public Optional<int64_t> parseInt<T: IU8String>(T str, inout int offset, int radix = 10, bool allowNegative = true)
 {
-    Ptr<uint8_t> string = stringToPtr<uint8_t>(str);
+    Ptr<uint8_t> string = str.data;
     int64_t result = 0;
     bool found = false;
     bool negative = false;
     int originalOffset = offset;
 
-    while (string[offset] != 0)
+    while (!str.isOffsetEnd(offset))
     {
-        int a = 0;
         uint8_t c = string[offset];
+        if (c == 0)
+            break;
+        int a = 0;
         if (c == 45 && allowNegative && !negative)
         {
             negative = true;
@@ -59,19 +66,22 @@ public Optional<int64_t> parseInt(NativeString str, inout int offset, int radix 
     return negative ? -result : result;
 }
 
-public Optional<double> parseFloat(NativeString str, inout int offset, bool allowNegative = false)
+public Optional<double> parseFloat<T: IU8String>(T str, inout int offset, bool allowNegative = false)
 {
-    Ptr<uint8_t> string = stringToPtr<uint8_t>(str);
+    Ptr<uint8_t> string = str.data;
     double result = 0;
     bool found = false;
     bool negative = false;
     bool decimals = false;
     double decimal_div = 10;
 
-    while (string[offset] != 0)
+    while (!str.isOffsetEnd(offset))
     {
-        int a = 0;
         uint8_t c = string[offset];
+        if (c == 0)
+            break;
+
+        int a = 0;
         if (c == 45 && allowNegative)
         {
             negative = !negative;
@@ -115,16 +125,23 @@ public bool isWhitespace(uint8_t c, bool newline = false)
     return false;
 }
 
-public void skipWhitespace(NativeString str, inout int offset, bool newline = false)
+public void skipWhitespace<T: IU8String>(T str, inout int offset, bool newline = false)
 {
-    Ptr<uint8_t> string = stringToPtr<uint8_t>(str);
-    while (isWhitespace(string[offset], newline))
+    Ptr<uint8_t> string = str.data;
+    while (!str.isOffsetEnd(offset))
+    {
+        if(!isWhitespace(string[offset], newline))
+            break;
         offset++;
+    }
 }
 
-public uint codePointLength(NativeString u8str, size_t offset = 0)
+public uint codePointLength<T: IU8String>(T u8str, size_t offset = 0)
 {
-    Ptr<int8_t> str = stringToPtr<int8_t>(u8str) + int64_t(offset);
+    if (u8str.isOffsetEnd(offset))
+        return 0;
+
+    Ptr<int8_t> str = Ptr<int8_t>(u8str.data + int64_t(offset));
 
     if(*str == 0) return 0;
     if(*str > 0) return 1;
@@ -136,11 +153,13 @@ public uint codePointLength(NativeString u8str, size_t offset = 0)
             break;
         str++;
         count++;
+        if (u8str.isOffsetEnd(offset + count))
+            break;
     }
     return count;
 }
 
-public size_t codePointStringLength(NativeString str, size_t offset = 0)
+public size_t codePointStringLength<T: IU8String>(T str, size_t offset = 0)
 {
     size_t count = 0;
     size_t i = 0;
@@ -155,33 +174,47 @@ public size_t codePointStringLength(NativeString str, size_t offset = 0)
     return count;
 }
 
-// Adapted from PDCursesMod (public domain)
-public uint32_t utf8ToUtf32(NativeString str, size_t offset = 0)
+public uint32_t utf8ToUtf32<T: IU8String>(T str, size_t offset = 0)
 {
-    Ptr<uint8_t> string = stringToPtr<uint8_t>(str) + int64_t(offset);
+    if (str.isOffsetEnd(offset))
+        return 0;
+
+    Ptr<uint8_t> string = str.data + int64_t(offset);
     uint32_t key = string[0];
 
     if ((key & 0x80) == 0)
-        return string[0];
-    else if ((key & 0xc0) == 0xc0 && (string[1] & 0xc0) == 0x80)
+        return key;
+
+    if (str.isOffsetEnd(offset+1))
+        return 0;
+
+    if ((key & 0xc0) == 0xc0 && (string[1] & 0xc0) == 0x80)
     {
         if ((key & 0xe0) == 0xc0)
         {
-            key = ((key & 0x1f) << 6) | uint32_t(string[1] & 0x3f);
+            return ((key & 0x1f) << 6) | uint32_t(string[1] & 0x3f);
         }
-        else if ((key & 0xf0) == 0xe0 && (string[2] & 0xc0) == 0x80)
+
+        if (str.isOffsetEnd(offset+2))
+            return 0;
+
+        if ((key & 0xf0) == 0xe0 && (string[2] & 0xc0) == 0x80)
         {
-            key = ((key & 0x0f) << 12) | (uint32_t(string[1] & 0x3f) << 6) |
+            return ((key & 0x0f) << 12) | (uint32_t(string[1] & 0x3f) << 6) |
                   uint32_t(string[2] & 0x3f);
         }
-        else if ((key & 0xf8) == 0xf0 && (string[2] & 0xc0) == 0x80 && (string[3] & 0xc0) == 0x80)
+
+        if (str.isOffsetEnd(offset+3))
+            return 0;
+
+        if ((key & 0xf8) == 0xf0 && (string[2] & 0xc0) == 0x80 && (string[3] & 0xc0) == 0x80)
         {
-            key = ((key & 0x07) << 18) | (uint32_t(string[1] & 0x3f) << 12) |
+            return ((key & 0x07) << 18) | (uint32_t(string[1] & 0x3f) << 12) |
                   (uint32_t(string[2] & 0x3f) << 6) | uint32_t(string[3] & 0x3f);
         }
     }
 
-    return key;
+    return 0;
 }
 
 public int utf32ToUtf8(uint32_t c, inout uint8_t o[4])
@@ -215,7 +248,144 @@ public int utf32ToUtf8(uint32_t c, inout uint8_t o[4])
     return 0;
 }
 
-public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
+public interface IU8String
+{
+    public property Ptr<uint8_t> data { get; }
+
+    public property size_t len { get; }
+
+    public property bool nullTerminated { get; }
+
+    public bool isOffsetEnd(size_t offset)
+    {
+        if (nullTerminated)
+            return data[offset] == 0;
+        else return offset >= len;
+    }
+
+    public size_t getCodePointCount()
+    {
+        return codePointStringLength(this);
+    }
+
+    public uint32_t readCodePoint(size_t offset)
+    {
+        return utf8ToUtf32(this, offset);
+    }
+
+    // Returns false if `offset` is at the end of the string. You can use this
+    // function to iterate over codepoints efficiently.
+    public bool stepCodePoint(inout size_t offset, inout uint32_t codePoint)
+    {
+        codePoint = utf8ToUtf32(this, offset);
+        size_t len = codePointLength(this, offset);
+        offset += len;
+        return len != 0;
+    }
+
+    public StringSlice slice(size_t offset, size_t len)
+    {
+        return StringSlice(this, offset, len);
+    }
+}
+
+public extension<T: IU8String> T: scul.IBigArray<uint8_t>
+{
+    // For IBigArray
+    public size_t getSize()
+    {
+        return len;
+    }
+
+    public __subscript(size_t i) -> uint8_t
+    {
+        get { return data[i]; }
+    }
+}
+
+public extension<T: IU8String> T: IComparable
+{
+    public int cmp(T other)
+    {
+        for (size_t i = 0; i < min(len, other.len); ++i)
+        {
+            if(this[i] < other[i])
+                return -1;
+            else if(this[i] > other[i])
+                return 1;
+        }
+        return 0;
+    }
+
+    public bool equals(T other)
+    {
+        // Since 'equals' doesn't care about order, we can quickly determine an
+        // inequality with len. 'lessThan' and 'lessThanOrEquals' don't have
+        // this convenience.
+        if (other.len != len)
+            return false;
+        return cmp(other) == 0;
+    }
+
+    public bool lessThan(T other)
+    {
+        return cmp(other) < 0;
+    }
+
+    public bool lessThanOrEquals(T other)
+    {
+        return cmp(other) <= 0;
+    }
+}
+
+public extension<T: IU8String> T: scul.IHashable
+{
+    public uint64_t hash()
+    {
+        return fnv1a(data, len);
+    }
+}
+
+public struct StringSlice: IU8String
+{
+    private Ptr<uint8_t> _data;
+    private size_t _length;
+
+    public __init()
+    {
+        _data = nullptr;
+        _length = 0;
+    }
+
+    public __init<T: IU8String>(T str)
+    {
+        _data = str.data;
+        _length = str.len;
+    }
+
+    public __init<T: IU8String>(T str, size_t offset, size_t len)
+    {
+        _data = str.data + offset;
+        _length = len;
+    }
+
+    public property bool nullTerminated { get { return false; } }
+
+    public property Ptr<uint8_t> data { get { return _data; } }
+
+    public property size_t len
+    {
+        get { return _length; }
+    }
+
+    public __subscript(size_t i) -> uint8_t
+    {
+        get { return _data[i]; }
+        set { _data[i] = newValue; }
+    }
+}
+
+public struct U8String: IU8String, IDroppable, ISerializable
 {
     private List<uint8_t> _data;
 
@@ -224,7 +394,7 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
         _data = List<uint8_t>();
     }
 
-    public __init(NativeString str)
+    public __init<T: IU8String>(T str)
     {
         _data = List<uint8_t>();
         append(str);
@@ -281,17 +451,14 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
         _data.drop();
     }
 
-    // For IBigArray
-    public size_t getSize()
-    {
-        // -1 to exclude hidden null terminator.
-        return max(_data.getSize(), size_t(1))-1;
-    }
+    public property bool nullTerminated { get { return true; } }
 
-    public property size_t length
-    {
+    public property Ptr<uint8_t> data { get { return _data.data; } }
+
+    public property size_t len {
         get {
-            return getSize();
+            // -1 to exclude hidden null terminator.
+            return max(_data.getSize(), size_t(1))-1;
         }
     }
 
@@ -299,26 +466,6 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     {
         get { return _data[i]; }
         set { _data[i] = newValue; }
-    }
-
-    public size_t getCodePointCount()
-    {
-        return codePointStringLength(cStr);
-    }
-
-    public uint32_t readCodePoint(size_t offset)
-    {
-        return utf8ToUtf32(cStr, offset);
-    }
-
-    // Returns false if `offset` is at the end of the string. You can use this
-    // function to iterate over codepoints efficiently.
-    public bool stepCodePoint(inout size_t offset, inout uint32_t codePoint)
-    {
-        codePoint = utf8ToUtf32(cStr, offset);
-        size_t len = codePointLength(cStr, offset);
-        offset += len;
-        return len != 0;
     }
 
     public property NativeString cStr
@@ -345,6 +492,13 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     }
 
     [mutating]
+    public void appendByte(uint8_t c)
+    {
+        ensureNullTerminator();
+        _data.insert(getSize(), c);
+    }
+
+    [mutating]
     public void appendChar(uint32_t c)
     {
         ensureNullTerminator();
@@ -355,17 +509,10 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
     }
 
     [mutating]
-    public void append(NativeString str)
+    public void append<T: IU8String>(T str)
     {
         ensureNullTerminator();
-        _data.insert(getSize(), Span<uint8_t>(stringToPtr<uint8_t>(str), str.length));
-    }
-
-    [mutating]
-    public void append(U8String other)
-    {
-        ensureNullTerminator();
-        _data.insert(getSize(), Span<uint8_t>(other._data.data, other.getSize()));
+        _data.insert(getSize(), Span<uint8_t>(str.data, str.len));
     }
 
     [mutating]
@@ -391,60 +538,76 @@ public struct U8String: IBigArray<uint8_t>, IDroppable, IComparable, IHashable
         }
     }
 
-    public int cmp(U8String other)
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
     {
-        for (size_t i = 0; i < min(_data.size, other._data.size); ++i)
+        try ar.write(len);
+        for (size_t i = 0; i < len; ++i)
+            try ar.write(_data[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
+        uint64_t len = 0;
+        try ar.read(len);
+        _data.resize(size_t(len)+1);
+        for (uint64_t i = 0; i < len; ++i)
         {
-            if(_data[i] < other._data[i])
-                return -1;
-            else if(_data[i] > other._data[i])
-                return 1;
+            uint8_t byte = 0;
+            try ar.read(byte);
+            _data[size_t(i)] = byte;
         }
-        return 0;
+        _data[size_t(len)] = 0;
+    }
+}
+
+public extension NativeString: IU8String
+{
+    public property bool nullTerminated { get { return true; } }
+
+    public property Ptr<uint8_t> data
+    {
+        get {
+            return stringToPtr<uint8_t>(this);
+        }
     }
 
-    public bool equals(U8String other)
+    public property size_t len {
+        get {
+            return size_t(C.strlen(this));
+        }
+    }
+}
+
+public extension String: IU8String
+{
+    public property bool nullTerminated { get { return true; } }
+
+    public property Ptr<uint8_t> data
     {
-        // Since 'equals' doesn't care about order, we can quickly determine an
-        // inequality with length. 'lessThan' and 'lessThanOrEquals' don't have
-        // this convenience.
-        if (other.length != length)
+        get {
+            return stringToPtr<uint8_t>(this);
+        }
+    }
+
+    public property size_t len {
+        get {
+            return size_t(C.strlen(this));
+        }
+    }
+}
+
+public bool operator==<A: IU8String, B: IU8String>(A a, B b)
+{
+    if (a.len != b.len)
+        return false;
+    for (size_t i = 0; i < a.len; ++i)
+    {
+        if(a[i] != b[i])
             return false;
-        return cmp(other) == 0;
     }
-
-    public bool lessThan(U8String other)
-    {
-        return cmp(other) < 0;
-    }
-
-    public bool lessThanOrEquals(U8String other)
-    {
-        return cmp(other) <= 0;
-    }
-
-    public uint64_t hash()
-    {
-        return fnv1a(_data.data, getSize());
-    }
+    return true;
 }
 
-public bool operator==(NativeString str, NativeString other)
-{
-    __intrinsic_asm "strcmp($0, $1) == 0";
-}
-
-public bool operator==(U8String a, NativeString b)
-{
-    return ((a.cStr) == b);
-}
-
-public bool operator==(NativeString a, U8String b)
-{
-    return ((b.cStr) == a);
-}
-
-public bool operator==(U8String a, U8String b)
-{
-    return a.equals(b);
 }

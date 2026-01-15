@@ -1,5 +1,8 @@
 import array;
 
+namespace scul
+{
+
 public struct Span<T> : IRWBigArray<T>
 {
     public T* data = nullptr;
@@ -32,4 +35,6 @@ public T load<T: IDifferentiable>(Span<T> span, size_t i)
 void load_bwd<T : IDifferentiable>(DifferentialPtrPair<Span<T>> pair, size_t i, T.Differential dOut)
 {
     pair.d.data[i] = T.dadd(pair.d[i], dOut);
+}
+
 }

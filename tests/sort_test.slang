@@ -4,6 +4,8 @@ import list;
 import array;
 import test;
 
+using scul;
+
 static uint seed = 0;
 uint pcg()
 {

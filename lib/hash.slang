@@ -1,3 +1,6 @@
+namespace scul
+{
+
 public uint64_t hashMix(uint64_t seed)
 {
     uint64_t h = seed;
@@ -76,17 +79,19 @@ public extension<T : IHashable> Optional<T>: IHashable
         if (let val = this)
             return val.hash();
         // "Chosen by a fair dice roll"
-        return 0x898B5D104B0BA055;
+        return 0x898B5D104B0BA055llu;
     }
 }
 
 public uint64_t fnv1a(Ptr<uint8_t> bytes, size_t count)
 {
-    uint64_t h = 0xcbf29ce484222325;
+    uint64_t h = 0xcbf29ce484222325llu;
     for (size_t i = 0; i < count; ++i)
     {
         h = h ^ bytes[i];
-        h = h * 0x100000001b3;
+        h = h * 0x100000001b3llu;
     }
     return h;
+}
+
 }

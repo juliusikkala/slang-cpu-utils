@@ -1,3 +1,6 @@
+namespace scul
+{
+
 public interface IDroppable
 {
     [mutating]
@@ -16,4 +19,6 @@ public extension<T: IDroppable> Optional<T>: IDroppable
             this = none;
         }
     }
+}
+
 }

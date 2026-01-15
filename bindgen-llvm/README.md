@@ -22,14 +22,14 @@ Options:
 * `--using <ns>` adds a `using ns;` at the start.
 * `--import <module>` adds a `import module;` at the start.
 * `--imported <header>` marks declarations from a C header as already included through an `--import`ed module.
-* `--define <name>=<value>` uses the given preprocessor macro when parsing headers.
-* `--include-dir <path>` adds the given include path parsing headers.
 * `--unscoped-enums <regex>` uses unscoped enums for the listed types.
+* `--enums-as-constants <regex>` turns matching enums into global constants of the underlying type.
 * `--rm-enum-prefix <regex>` removes a prefix from all enum cases if it's common to all cases in the enum. For a regex, the longest matching and present prefix is removed.
 * `--rm-enum-case <regex>` removes matching cases from all enums.
 * `--fallback-prefix <str>` adds the given prefix to all enum case names that would not be valid in Slang.
 * `--use-byte-bool` uses `uint8_t` instead of bool. Useful when overriding default layout to something where `sizeof(bool) != 1`.
 * `--call-shim <object-file>` generates shim object code for calling C functions with difficult calling convention issues
+* `-- <any parameters to Clang>` any parameters after `--` are passed verbatim to Clang, such as defines and include directories.
 
 ## How it's made
 

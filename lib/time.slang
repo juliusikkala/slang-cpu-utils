@@ -1,3 +1,8 @@
+import crt;
+
+namespace scul
+{
+
 public struct TimeTicks
 {
     private uint64_t nsSinceStart;
@@ -90,9 +95,10 @@ public TimeTicks operator-(TimeTicks a, TimeTicks b)
 
 public void sleep(double seconds)
 {
-    __requirePrelude("#include <chrono>");
-    __requirePrelude("#include <thread>");
-    __intrinsic_asm "std::this_thread::sleep_for(std::chrono::duration<double>($0));";
+    C.timespec ts;
+    ts.tv_sec = int64_t(seconds);
+    ts.tv_nsec = int64_t(frac(seconds) * 1e9);
+    C.thrd_sleep(&ts, nullptr);
 }
 
 public void sleep(TimeTicks ticks)
@@ -100,20 +106,25 @@ public void sleep(TimeTicks ticks)
     sleep(ticks.seconds);
 }
 
-void timeHelper(inout uint64_t nanoseconds)
-{
-    __intrinsic_asm R"(
-        static auto startTime = std::chrono::high_resolution_clock::now();
-        *($0) = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
-    )";
-}
+static bool startTimeInitialized = false;
+static TimeTicks startTime;
 
 // Ticks reported in nanoseconds
 public TimeTicks getTicks()
 {
-    uint64_t ns = 0;
-    timeHelper(ns);
+    C.timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = 0;
+    C.timespec_get(&ts, C.TimeUTC);
     TimeTicks t;
-    t.nanoseconds = ns;
-    return t;
+    t.nanoseconds = ts.tv_nsec + ts.tv_sec * 1000000000llu;
+
+    if (!startTimeInitialized)
+    {
+        startTimeInitialized = true;
+        startTime = t;
+    }
+    return t-startTime;
+}
+
 }

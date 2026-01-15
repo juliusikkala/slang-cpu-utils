@@ -35,11 +35,12 @@ static struct {
     std::vector<std::string> importModules;
     std::vector<std::string> usingNamespaces;
     std::vector<std::string> importedHeaders;
-    std::vector<std::string> defines;
-    std::vector<std::string> includePaths;
+    std::set<std::string> exportSymbols;
     std::vector<std::regex> unscopedEnums;
+    std::vector<std::regex> enumsAsConstants;
     std::vector<std::regex> removeCommonPrefixes;
     std::vector<std::regex> removeEnumCases;
+    std::vector<std::string> forwardedArgsToClang;
     std::string enumFallbackPrefix = "e";
     bool useByteBool = false;
 } options;
@@ -58,12 +59,14 @@ Options:
 --import <module>         adds a `import module;` at the start 
 --imported <header>       marks declarations from a C header as already included
                           through an `--import`ed module
---define <name>=<value>   uses the given preprocessor macro when parsing headers
---include-dir <path>      adds the given include path parsing headers
 --unscoped-enums <regex>  uses unscoped enums for the listed types.
 --rm-enum-prefix <regex>  removes a prefix from all enum cases if it's common to
                           all cases in the enum. For a regex, the longest
                           matching and present prefix is removed.
+--enums-as-constants <regex> turns matching enums into global constants of the
+                             underlying type.
+--export-symbols <sym>    exports declarations with the given names even if they
+                          come from outside the input headers.
 --rm-enum-case <regex>    removes matching cases from all enums
 --fallback-prefix <str>   adds the given prefix to all enum case names that
                           would not be valid in Slang
@@ -71,6 +74,8 @@ Options:
                           default layout to something where sizeof(bool) != 1.
 --call-shim <object-file> generates shim object code for calling C functions
                           with difficult calling convention issues
+
+All parameters after a -- are passed to Clang verbatim.
 )";
 
 void printHelp(bool asError, const char** argv)
@@ -96,7 +101,7 @@ bool parseOptions(int argc, const char** argv)
 
                 // If '--' is specified, that means that there are no further
                 // flags to handle, and the rest of the parameters should be
-                // taken literally as C header names.
+                // taken literally as Clang parameters.
                 if (*arg == 0)
                 {
                     endFlags = true;
@@ -135,16 +140,6 @@ bool parseOptions(int argc, const char** argv)
                 options.importedHeaders.push_back(value);
                 i++;
             }
-            else if (strcmp(arg, "define") == 0)
-            {
-                options.defines.push_back(value);
-                i++;
-            }
-            else if (strcmp(arg, "include-dir") == 0)
-            {
-                options.includePaths.push_back(value);
-                i++;
-            }
             else if (strcmp(arg, "output") == 0)
             {
                 options.outputPath = value;
@@ -153,6 +148,11 @@ bool parseOptions(int argc, const char** argv)
             else if (strcmp(arg, "unscoped-enums") == 0)
             {
                 options.unscopedEnums.push_back(std::regex(value));
+                i++;
+            }
+            else if (strcmp(arg, "enums-as-constants") == 0)
+            {
+                options.enumsAsConstants.push_back(std::regex(value));
                 i++;
             }
             else if (strcmp(arg, "rm-enum-prefix") == 0)
@@ -179,11 +179,33 @@ bool parseOptions(int argc, const char** argv)
                 options.shimOutputPath = value;
                 i++;
             }
+            else if (strcmp(arg, "export-symbols") == 0)
+            {
+                std::string sym;
+                for (int j = 0; ; ++j)
+                {
+                    char c = value[j];
+                    if (c == ',' || c == 0)
+                    {
+                        if (sym.size() != 0)
+                            options.exportSymbols.insert(sym);
+                        sym.clear();
+                        if (c == 0)
+                            break;
+                    }
+                    else sym += c;
+                }
+                i++;
+            }
             else
             {
                 fprintf(stderr, "Unknown flag: %s\n", arg);
                 return false;
             }
+        }
+        else if (endFlags)
+        {
+            options.forwardedArgsToClang.push_back(arg);
         }
         else
         {
@@ -447,21 +469,36 @@ struct ClangSession
         auto fs = llvm::vfs::getRealFileSystem();
         llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagID(new clang::DiagnosticIDs());
         llvm::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(new clang::DiagnosticsEngine(diagID, diagOpts, &diagConsumer, false));
-        driver.reset(new clang::driver::Driver(BINDGEN_PATH_TO_CLANG, options.targetTriple, *diags, "Slang Bindgen", fs));
-
-        // Add some fake job to dig out the system library directories from 
-        // Clang :/
-        driver->setCheckInputsExist(false);
-
         // The path to Clang is only needed because the driver computes some
         // include directories based on that :( it doesn't mean that this
         // program would actually depend on the presence of the Clang executable
         // itself.
-        comp.reset(driver->BuildCompilation({"clang", "-w", "-S", "dummy.c", "-I.", "-g0", "-fvisibility=default"}));
+        driver.reset(new clang::driver::Driver(BINDGEN_PATH_TO_CLANG, options.targetTriple, *diags, "Slang Bindgen", fs));
+
+        driver->setCheckInputsExist(false);
+
+        std::vector<const char*> argsToClang;
+
+        argsToClang.push_back("clang");
+        for (auto& arg: options.forwardedArgsToClang)
+            argsToClang.push_back(arg.c_str());
+        argsToClang.push_back("-w");
+        // Add some fake job to dig out the system library directories from 
+        // Clang :/
+        argsToClang.push_back("-S"); argsToClang.push_back("dummy.c");
+        argsToClang.push_back("-I.");
+        argsToClang.push_back("-g0");
+        argsToClang.push_back("-fvisibility=default");
+        argsToClang.push_back("-target");
+        argsToClang.push_back(options.targetTriple.c_str());
+        argsToClang.push_back("-std=c17");
+
+        comp.reset(driver->BuildCompilation(argsToClang));
+
         const auto &jobs = comp->getJobs();
         assert(jobs.size() == 1);
         // These args should contain correct system include directories as well.
-        const llvm::opt::ArgStringList &ccArgs = jobs.begin()->getArguments();
+        llvm::opt::ArgStringList ccArgs = jobs.begin()->getArguments();
 
         clang.reset(new clang::CompilerInstance());
         auto& invocation = clang->getInvocation();
@@ -476,19 +513,7 @@ struct ClangSession
         auto& targetOpts = invocation.getTargetOpts();
         targetOpts.Triple = options.targetTriple;
 
-        auto& ppOpts = invocation.getPreprocessorOpts();
-        for (const std::string& def: options.defines)
-            ppOpts.addMacroDef(def);
-
-        auto& opts = invocation.getLangOpts();
-        std::vector<std::string> includes;
-        clang::LangOptions::setLangDefaults(
-            opts, clang::Language::C, llvm::Triple(options.targetTriple),
-            includes, clang::LangStandard::Kind::lang_c17
-        );
         auto& searchOpts = clang->getHeaderSearchOpts();
-        for (const std::string& path: options.includePaths)
-            searchOpts.AddPath(path, clang::frontend::IncludeDirGroup::Angled, false, false);
 
         searchOpts.UseBuiltinIncludes = true;
         searchOpts.UseStandardSystemIncludes = true;
@@ -596,6 +621,37 @@ bool isLocationActive(BindingContext& ctx, clang::SourceLocation loc)
     return false;
 }
 
+std::optional<std::string> maybeGetName(clang::NamedDecl* decl)
+{
+    clang::DeclarationName name = decl->getDeclName();
+    if (name)
+        return name.getAsString();
+
+    if (!clang::isa<clang::TagDecl>(decl))
+        return {};
+
+    clang::TagDecl* tag = clang::cast<clang::TagDecl>(decl);
+
+    clang::TypedefNameDecl* typedefName = tag->getTypedefNameForAnonDecl();
+    if (typedefName)
+        return typedefName->getNameAsString();
+
+    return {};
+}
+
+bool isNameActive(clang::Decl* decl)
+{
+    if (!clang::isa<clang::NamedDecl>(decl))
+        return false;
+
+    clang::NamedDecl* named = clang::cast<clang::NamedDecl>(decl);
+
+    std::optional<std::string> name = maybeGetName(named);
+    if (!name.has_value())
+        return false;
+    return options.exportSymbols.count(*name) != 0;
+}
+
 bool isLocationVisible(BindingContext& ctx, clang::SourceLocation loc)
 {
     auto& sourceManager = ctx.session->clang->getSourceManager();
@@ -648,17 +704,14 @@ bool isUnscopedEnum(const std::string& enumName)
     return false;
 }
 
-std::optional<std::string> maybeGetName(clang::TagDecl* decl)
+bool isConstantifiedEnum(const std::string& enumName)
 {
-    clang::DeclarationName name = decl->getDeclName();
-    if (name)
-        return name.getAsString();
-
-    clang::TypedefNameDecl* typedefName = decl->getTypedefNameForAnonDecl();
-    if (typedefName)
-        return typedefName->getNameAsString();
-
-    return {};
+    for (auto& expr: options.enumsAsConstants)
+    {
+        if (std::regex_match(enumName, expr))
+            return true;
+    }
+    return false;
 }
 
 std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQualifier = false)
@@ -675,7 +728,7 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
     {
         clang::TypedefNameDecl* decl = typedefType->getDecl();
         // Use typedef names if the decl is visible, those should exist.
-        if (isLocationVisible(ctx, decl->getLocation()))
+        if (isLocationVisible(ctx, decl->getLocation()) || isNameActive(decl))
             return decl->getName().str();
         // Otherwise, continue with the canonical type.
     }
@@ -774,7 +827,7 @@ std::string getTypeStr(BindingContext& ctx, clang::QualType qualType, bool omitQ
             ctx.addTypeForwardDeclare(ident);
         }
 
-        if (type.isEnumeralType() && (!visible || ident.empty()))
+        if (type.isEnumeralType() && (!visible || ident.empty() || isConstantifiedEnum(ident)))
         {
             // Use the underlying type for anonymous or externally defined enums.
             clang::EnumDecl* enumDecl = clang::cast<clang::EnumDecl>(decl);
@@ -876,7 +929,7 @@ void dumpEnum(BindingContext& ctx, clang::EnumDecl* decl, const std::string& var
     }
 
     std::string underlyingType = getTypeStr(ctx, decl->getIntegerType());
-    if (name)
+    if (name && !isConstantifiedEnum(*name))
     {
         ctx.addTypeDefinition(*name);
 
@@ -1374,12 +1427,8 @@ void dumpFunction(BindingContext& ctx, clang::FunctionDecl* decl)
     }
 }
 
-void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
+void dumpConstantVar(BindingContext& ctx, clang::VarDecl* decl)
 {
-    // Only expose constant variables.
-    if (!decl->getType().isConstQualified() || !decl->hasInit())
-        return;
-
     clang::Expr* initializer = decl->getInit();
     clang::QualType initializerType = initializer->getType();
     std::string initializerStr;
@@ -1387,7 +1436,9 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
     auto& astCtx = ctx.session->getASTContext();
     clang::Expr::EvalResult result;
     if (!initializer->EvaluateAsConstantExpr(result, astCtx))
+    {
         return;
+    }
 
     clang::PrintingPolicy policy = astCtx.getPrintingPolicy();
     policy.ConstantsAsWritten = 1;
@@ -1436,6 +1487,13 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
         }
         else return;
     }
+    else if (result.Val.isLValue() && decl->getType()->isPointerType())
+    {
+        auto offset = result.Val.getLValueOffset();
+        std::stringstream stream;
+        stream << "reinterpret<" << type << ">(0x" << std::hex << offset.getQuantity() << "u)";
+        initializerStr = stream.str();
+    }
     else return;
 
     ctx.output(
@@ -1444,6 +1502,25 @@ void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
         std::string(decl->getName()).c_str(),
         initializerStr.c_str()
     );
+}
+
+void dumpExternVar(BindingContext& ctx, clang::VarDecl* decl)
+{
+    std::string type = getTypeStr(ctx, decl->getType());
+    ctx.output(
+        "public static __extern_cpp %s %s;",
+        type.c_str(),
+        std::string(decl->getName()).c_str()
+    );
+}
+
+void dumpVar(BindingContext& ctx, clang::VarDecl* decl)
+{
+    // Only expose constant variables.
+    if (decl->getType().isConstQualified() && decl->hasInit())
+        dumpConstantVar(ctx, decl);
+    else if (!decl->hasInit() && decl->hasExternalStorage())
+        dumpExternVar(ctx, decl);
 }
 
 void dumpDecl(BindingContext& ctx, clang::Decl* decl, bool topLevel)
@@ -1616,7 +1693,7 @@ bool SlangBindgen::HandleTopLevelDecl(clang::DeclGroupRef decl)
 {
     for (clang::Decl* singleDecl: decl)
     {
-        if (!isLocationActive(*ctx, singleDecl->getLocation()))
+        if (!isLocationActive(*ctx, singleDecl->getLocation()) && !isNameActive(singleDecl))
             continue;
         dumpDecl(*ctx, singleDecl, true);
     }

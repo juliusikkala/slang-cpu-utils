@@ -6,10 +6,9 @@ endif()
 
 set(CMAKE_Slang_FLAGS_INIT "${CMAKE_Slang_FLAGS_INIT} -DSLANG_IS_HOST")
 
-# TODO: What if the downstream compiler is MSVC? Handle that case.
-set(CMAKE_Slang_FLAGS_DEBUG_INIT "-g3 -Xgenericcpp... -g -X.")
-set(CMAKE_Slang_FLAGS_RELEASE_INIT "-O3 -g0 -DNDEBUG -Xgenericcpp... -O2 -DNDEBUG -X.")
-set(CMAKE_Slang_FLAGS_RELWITHDEBINFO_INIT "-O2 -g2 -Xgenericcpp... -O2 -g -X.")
+set(CMAKE_Slang_FLAGS_DEBUG_INIT "-O0 -g3")
+set(CMAKE_Slang_FLAGS_RELEASE_INIT "-O3 -g0")
+set(CMAKE_Slang_FLAGS_RELWITHDEBINFO_INIT "-O2 -g2")
 
 set(CMAKE_INCLUDE_FLAG_Slang "-I")
 
@@ -32,11 +31,11 @@ set(CMAKE_Slang_OUTPUT_EXTENSION -module)
 # Build a executable 
 if (WIN32)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target executable -DSLANG_IS_HOST <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
+        "<CMAKE_Slang_COMPILER> -target host-object-code -emit-cpu-via-llvm <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -o <TARGET>"
     )
 elseif(UNIX)
     set(CMAKE_Slang_LINK_EXECUTABLE 
-        "<CMAKE_Slang_COMPILER> -target executable -DSLANG_IS_HOST <CMAKE_Slang_LINK_FLAGS> -Xgenericcpp... -w <LINK_FLAGS> <LINK_LIBRARIES> -X. -o <TARGET> <OBJECTS>"
+        "<CMAKE_Slang_COMPILER> -target host-object-code -emit-cpu-via-llvm <CMAKE_Slang_LINK_FLAGS> <LINK_FLAGS> <FLAGS> <OBJECTS> -o <TARGET>.slang.o;${CMAKE_C_COMPILER} <TARGET>.slang.o <LINK_LIBRARIES> -lm -o <TARGET>"
     )
 endif()
 
@@ -53,7 +52,7 @@ function(add_slang_library target-name)
     # This one's a bit funny. Typical link flags would be addressed to the 
     # downstream C++ compiler. However, we escape out with `-X.` to pass flags
     # directly to Slang for this one to work.
-    target_link_options(${target-name} INTERFACE -X. -I${MODULE_PATH} -Xgenericcpp...)
+    target_link_options(${target-name} INTERFACE -I${MODULE_PATH})
 endfunction()
 
 # TODO Figure out a clean way to allow passing flags to shader Slang only!
