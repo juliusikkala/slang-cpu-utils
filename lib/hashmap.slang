@@ -7,10 +7,10 @@ import equal;
 namespace scul
 {
 
-public struct HashMap<K, T>: IDroppable
+public struct HashMap<K, T, DK = scul.NoDelete<K>, DT = scul.NoDelete<T>>: IDroppable
     where K: IHashable, IEqual
-    where optional K: IDroppable
-    where optional T: IDroppable
+    where DK : scul.IDeleter<K>
+    where DT : scul.IDeleter<T>
 {
     private size_t _indexCounter;
     private size_t _allocSize;
@@ -18,10 +18,12 @@ public struct HashMap<K, T>: IDroppable
     private Ptr<size_t> _next;
     private Ptr<K> _keys;
     private Ptr<T> _values;
+    private DK _keyDeleter;
+    private DT _valueDeleter;
 
     private static const size_t hashFactor = 4;
 
-    public __init()
+    public __init(DK keyDeleter = DK(), DT valueDeleter = DT())
     {
         _keys = nullptr;
         _values = nullptr;
@@ -29,6 +31,8 @@ public struct HashMap<K, T>: IDroppable
         _next = nullptr;
         _indexCounter = 0;
         _allocSize = 0;
+        _keyDeleter = keyDeleter;
+        _valueDeleter = valueDeleter;
     }
 
     [mutating]
@@ -129,11 +133,9 @@ public struct HashMap<K, T>: IDroppable
         {
             if (_keys[*index] == key)
             {
-                if (T is IDroppable)
-                    _values[*index].drop();
+                _valueDeleter.delete(_values[*index]);
                 _values[*index] = value;
-                if (K is IDroppable)
-                    key.drop();
+                _keyDeleter.delete(key);
                 return false; // Already exists.
             }
             else
@@ -171,10 +173,9 @@ public struct HashMap<K, T>: IDroppable
             return none;
 
         // Destruct the found entry.
-        if (K is IDroppable)
-            _keys[*index].drop();
-        if (T is IDroppable)
-            _values[*index].drop();
+        _keyDeleter.delete(_keys[*index]);
+        _valueDeleter.delete(_values[*index]);
+
         size_t i = *index;
         *index = _next[*index];
 
@@ -200,10 +201,8 @@ public struct HashMap<K, T>: IDroppable
     {
         for (size_t i = 0; i < _indexCounter; ++i)
         {
-            if (K is IDroppable)
-                _keys[i].drop();
-            if (T is IDroppable)
-                _values[i].drop();
+            _keyDeleter.delete(_keys[i]);
+            _valueDeleter.delete(_values[i]);
         }
         for (size_t i = 0; i < _allocSize * hashFactor; ++i)
             _hashes[i] = size_t.maxValue;
@@ -240,10 +239,10 @@ public struct HashMap<K, T>: IDroppable
         return _values[index];
     }
 
+    [mutating]
     public void setValueByIndex(size_t index, T value)
     {
-        if (T is IDroppable)
-            _values[index].drop();
+        _valueDeleter.delete(_values[index]);
         _values[index] = value;
     }
 

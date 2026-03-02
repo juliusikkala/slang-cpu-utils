@@ -25,6 +25,7 @@ add_slang_library(scul
     array.slang
     binarystream.slang
     bmp.slang
+    bvh.slang
     color.slang
     crt.slang
     csv.slang
@@ -45,6 +46,7 @@ add_slang_library(scul
     serialization.slang
     sort.slang
     span.slang
+    spacefillingcurves.slang
     string.slang
     thread.slang
     time.slang

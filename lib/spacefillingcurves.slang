@@ -93,6 +93,59 @@ public uint3 mortonDecode3D64(uint64_t m)
     return uint3(x);
 }
 
+public T binaryToGray<T: __BuiltinIntegerType>(T n)
+{
+    return n ^ (n >> 1);
+}
+
+public T grayToBinary<T: __BuiltinIntegerType>(T n)
+{
+    T bin = n;
+
+    uint shift = sizeof(T) * 4;
+    [ForceUnroll] while (shift != 0)
+    {
+        bin = bin ^ (bin >> shift);
+        shift >>= 1;
+    }
+    return bin;
+}
+
+Int rol<Int: __BuiltinIntegerType>(Int x, Int bits, Int n)
+{
+    return ((x << bits) & ((Int(1) << n) - Int(1))) | (x >> (n - bits));
+}
+
+Int ror<Int: __BuiltinIntegerType>(Int x, Int bits, Int n)
+{
+    return ((x << (n - bits)) & ((Int(1) << n) - Int(1))) | (x >> bits);
+}
+
+// https://threadlocalmutex.com/?p=205
+public Int mortonToHilbert<Int: __BuiltinIntegerType, int Dim>(Int morton, uint bits)
+{
+    Int d = Int(Dim);
+    Int c = Int(0);
+    Int n = Int(0);
+    Int mask = Int((1u << Dim)-1u);
+    Int hibit = Int(1u << (Dim-1));
+    Int hilbert = Int(0);
+
+    for (uint i = 0; i < bits; ++i)
+    {
+        Int M = mask & (morton >> Int(Dim * (bits - i - 1)));
+        Int gray = ror(c ^ M, n, d);
+        Int I = grayToBinary(gray);
+        hilbert = (hilbert << d) | I;
+        Int N = Int(2 + firstbitlow(gray & ~hibit));
+        Int C = I == Int(0) ? Int(0) : gray ^ (I & -Int(I) | Int(1));
+        c = rol(C, n, d) ^ c;
+        n = (n + N) % d;
+    }
+
+    return hilbert;
+}
+
 // From: http://and-what-happened.blogspot.com/2011/08/fast-2d-and-3d-hilbert-curves-and.html
 public uint mortonToHilbert2D32(uint morton, uint bits)
 {

@@ -19,7 +19,7 @@ public struct DropCounter: IDroppable
 
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
-    List<DropCounter> l;
+    List<DropCounter, DropDelete<DropCounter>> l;
     test(l.size == 0, "size 0");
 
     for (int i = 0; i < 10; ++i)

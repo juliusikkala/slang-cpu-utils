@@ -44,7 +44,7 @@ uint lcg(inout uint seed)
 
 export __extern_cpp int main(int argc, Ptr<NativeString> argv)
 {
-    var hs = HashSet<DropCounter>();
+    var hs = HashSet<DropCounter, DropDelete<DropCounter>>();
 
     var workList = List<uint>();
 

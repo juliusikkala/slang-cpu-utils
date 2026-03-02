@@ -7,25 +7,27 @@ import equal;
 namespace scul
 {
 
-public struct HashSet<T>: IDroppable, IBigArray<T>
+public struct HashSet<T, D = scul.NoDelete<T>>: IDroppable, IBigArray<T>
     where T: IHashable, IEqual
-    where optional T: IDroppable
+    where D : scul.IDeleter<T>
 {
     private size_t _indexCounter;
     private size_t _allocSize;
     private Ptr<size_t> _hashes;
     private Ptr<size_t> _next;
     private Ptr<T> _data;
+    private D _deleter;
 
     private static const size_t hashFactor = 4;
 
-    public __init()
+    public __init(D deleter = D())
     {
         _data = nullptr;
         _hashes = nullptr;
         _next = nullptr;
         _indexCounter = 0;
         _allocSize = 0;
+        _deleter = deleter;
     }
 
     [mutating]
@@ -107,8 +109,7 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
         {
             if (_data[*index] == key)
             {
-                if (T is IDroppable)
-                    key.drop();
+                _deleter.delete(key);
                 return false; // Already exists.
             }
             else
@@ -144,8 +145,7 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
             return none;
 
         // Destruct the found entry.
-        if (T is IDroppable)
-            _data[*index].drop();
+        _deleter.delete(_data[*index]);
         size_t i = *index;
         *index = _next[*index];
 
@@ -168,11 +168,8 @@ public struct HashSet<T>: IDroppable, IBigArray<T>
     [mutating]
     public void clear()
     {
-        if (T is IDroppable)
-        {
-            for (size_t i = 0; i < _indexCounter; ++i)
-                _data[i].drop();
-        }
+        for (size_t i = 0; i < _indexCounter; ++i)
+            _deleter.delete(_data[i]);
         for (size_t i = 0; i < _allocSize * hashFactor; ++i)
             _hashes[i] = size_t.maxValue;
         _indexCounter = 0;
