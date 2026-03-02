@@ -1,6 +1,8 @@
 import memory;
 import test;
 
+using scul;
+
 struct MyStructure
 {
     uint64_t n;

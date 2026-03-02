@@ -1,6 +1,8 @@
 import hash;
 import test;
 
+using scul;
+
 void testIntHash<T: __BuiltinIntegerType>(NativeString testName, T min, T max, T step)
 {
     for (T i = min; i < max-step; i += step)

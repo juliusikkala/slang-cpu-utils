@@ -3,6 +3,8 @@ import list;
 import drop;
 import test;
 
+using scul;
+
 void f<T: IBigArray<int>>(T arr)
 {
     test(arr[arr.getSize()-1] == 15, "4");

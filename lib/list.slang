@@ -2,19 +2,25 @@ import array;
 import memory;
 import drop;
 import span;
+import serialization;
 
-public struct List<T>: IRWBigArray<T>, IDroppable
-    where optional T: IDroppable
+namespace scul
+{
+
+public struct List<T, D = scul.NoDelete<T>>: IRWBigArray<T>, IDroppable
+    where D : scul.IDeleter<T>
 {
     Ptr<T> _data;
     size_t _capacity;
     size_t _size;
+    D _deleter;
 
-    public __init()
+    public __init(D deleter = D())
     {
         _data = nullptr;
         _capacity = 0;
         _size = 0;
+        _deleter = deleter;
     }
 
     /*
@@ -39,8 +45,7 @@ public struct List<T>: IRWBigArray<T>, IDroppable
     [mutating]
     public void drop()
     {
-        if (T is IDroppable)
-            clear();
+        clear();
         if (_data != nullptr)
             deallocate<T>(_data);
         _data = nullptr;
@@ -83,13 +88,10 @@ public struct List<T>: IRWBigArray<T>, IDroppable
     [mutating]
     public void resize(size_t newSize, T defaultValue = T())
     {
-        if (T is IDroppable)
+        if (newSize < _size)
         {
-            if (newSize < _size)
-            {
-                for (size_t i = newSize; i < _size; ++i)
-                    _data[i].drop();
-            }
+            for (size_t i = newSize; i < _size; ++i)
+                _deleter.delete(_data[i]);
         }
 
         if (newSize > _capacity)
@@ -146,11 +148,8 @@ public struct List<T>: IRWBigArray<T>, IDroppable
     [mutating]
     public void erase(size_t fromIndex, size_t count)
     {
-        if (T is IDroppable)
-        {
-            for (size_t i = fromIndex; i < min(fromIndex+count, _size); ++i)
-                _data[i].drop();
-        }
+        for (size_t i = fromIndex; i < min(fromIndex+count, _size); ++i)
+            _deleter.delete(_data[i]);
 
         if (fromIndex >= _size)
             return;
@@ -205,14 +204,38 @@ public struct List<T>: IRWBigArray<T>, IDroppable
     [mutating]
     public void clear()
     {
-        if (T is IDroppable)
+        if (_data != nullptr)
         {
-            if (_data != nullptr)
-            {
-                for (size_t i = 0; i < _size; ++i)
-                    _data[i].drop();
-            }
+            for (size_t i = 0; i < _size; ++i)
+                _deleter.delete(_data[i]);
         }
         _size = 0;
     }
+}
+
+public extension<T: scul.ISerializable, D: scul.IDeleter<T>> List<T, D>: scul.ISerializable
+{
+    [mutating]
+    override void write<A: IOutputStream>(inout A ar) throws SerializationError
+    {
+        try ar.write(uint64_t(size));
+        for (size_t i = 0; i < size; ++i)
+            try ar.write(_data[i]);
+    }
+
+    [mutating]
+    override void read<A: IInputStream>(inout A ar) throws SerializationError
+    {
+        uint64_t newSize;
+        try ar.read(newSize);
+        resize(size_t(newSize));
+        for (uint64_t i = 0; i < newSize; ++i)
+        {
+            T value = T();
+            try ar.read(value);
+            _data[size_t(i)] = value;
+        }
+    }
+}
+
 }

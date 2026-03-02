@@ -1,6 +1,9 @@
 import array;
 import panic;
 
+namespace scul
+{
+
 public uint pcg(inout uint seed)
 {
     seed = seed * 747796405u + 2891336453u;
@@ -42,4 +45,6 @@ public void shuffle<T, A: IRWBigArray<T>>(inout uint seed, inout A arr)
         arr[i] = arr[j];
         arr[j] = val;
     }
+}
+
 }
