@@ -9,7 +9,7 @@ struct MyStructure
     uint8_t s;
 };
 
-public struct CustomAllocator: IAllocator
+public struct CustomAllocator: IDeviceAllocator
 {
     Ptr<uint8_t> mem = nullptr;
     size_t size = 0;
@@ -27,22 +27,6 @@ public struct CustomAllocator: IAllocator
 
         Ptr<void> retval = reinterpret<Ptr<void>>(mem + intptr_t(top));
         return retval;
-    }
-
-    [mutating]
-    public void deallocate(Ptr<void> data)
-    {
-        // Sorry, we don't deallocate 'round these parts.
-    }
-
-    [mutating]
-    public Ptr<void> reallocate(
-        Ptr<void> prevPtr,
-        size_t prevBytes,
-        size_t bytes,
-        size_t alignment
-    ){
-        return fallbackReallocate<CustomAllocator>(this, prevPtr, prevBytes, bytes, alignment);
     }
 }
 
